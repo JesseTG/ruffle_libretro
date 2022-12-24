@@ -1,0 +1,19 @@
+[package]
+name = "ruffle_libretro"
+version = "0.0.0"
+edition = "2021"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+arboard = "3.2.0"
+gc-arena = { git = "https://github.com/ruffle-rs/gc-arena" }
+log = "0.4.17"
+ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", features = ["audio", "default"] }
+ruffle_render = { git = "https://github.com/ruffle-rs/ruffle" }
+rust-libretro = { version = "0.1.5", features = ["log", "unstable-env-commands"] }
+url = "2.3.1"
+
+[build-dependencies]
+built = "0.5"
