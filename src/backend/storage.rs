@@ -1,9 +1,16 @@
 use std::error::Error;
 use std::path::{Component, Path, PathBuf};
-use log::{error, warn, log, debug};
+use log::{error, warn, debug};
 use ruffle_core::backend::storage::StorageBackend;
 use rust_libretro::contexts::GenericContext;
-use rust_libretro::types::{VfsFileOpenFlags, VfsFileOpenHints, VfsStat};
+use rust_libretro::types::{VfsFileOpenFlags, VfsFileOpenHints};
+use thiserror::Error as ThisError;
+
+#[derive(ThisError, Debug)]
+pub enum StorageError {
+    #[error("Save data path is invalid Unicode")]
+    InvalidUnicodePath,
+}
 
 pub struct RetroVfsStorageBackend<'a> {
     base_path: PathBuf,
@@ -15,7 +22,7 @@ impl<'a> RetroVfsStorageBackend<'a> {
     pub fn new(base_path: &Path, context: GenericContext) -> Result<Self, Box<dyn Error>> {
         let shared_objects_path = base_path.join("SharedObjects");
 
-        return match Self::create_storage_dir(&context, &shared_objects_path) {
+        return match Self::ensure_storage_dir(&context, &shared_objects_path) {
             Ok(_) => Ok(Self {
                 base_path: PathBuf::from(base_path),
                 shared_objects_path,
@@ -41,12 +48,14 @@ impl<'a> RetroVfsStorageBackend<'a> {
         self.base_path.join(name.replacen("/#", "/", 1))
     }
 
-    fn create_storage_dir(context: &GenericContext, path: &PathBuf) -> Result<(), Box<dyn Error>> {
-        return match context.vfs_mkdir(path.to_str().ok_or("Save data path is invalid Unicode")?) {
+    fn ensure_storage_dir(context: &GenericContext, path: &PathBuf) -> Result<(), Box<dyn Error>> {
+        return match context.vfs_mkdir(path.to_str().ok_or(StorageError::InvalidUnicodePath)?) {
             Ok(()) => {
                 debug!("[ruffle] Created storage dir {path:?}");
                 Ok(())
             }
+            Err(e) if e.to_string().contains("Failed to create directory: Exists already") => Ok(()),
+            // TODO: Return a MkdirStatus result
             Err(e) => {
                 warn!("[ruffle] Failed to create storage dir {path:?}: {e}");
                 Err(e)
@@ -87,7 +96,7 @@ impl<'a> StorageBackend for RetroVfsStorageBackend<'a> {
         }
 
         if let Some(parent_dir) = path.parent().and_then(|p| Some(PathBuf::from(p))) {
-            if let Err(e) = Self::create_storage_dir(&self.context, &parent_dir) {
+            if let Err(e) = Self::ensure_storage_dir(&self.context, &parent_dir) {
                 return false;
             }
         }

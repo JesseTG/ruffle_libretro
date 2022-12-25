@@ -1,6 +1,5 @@
 //! Navigator backend for web
 
-use crate::custom_event::RuffleEvent;
 use isahc::{
     config::RedirectPolicy, prelude::*, AsyncReadResponseExt, HttpClient, Request as IsahcRequest,
 };
@@ -11,17 +10,14 @@ use ruffle_core::indexmap::IndexMap;
 use ruffle_core::loader::Error;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
+use rust_libretro::contexts::GenericContext;
 use url::Url;
-use winit::event_loop::EventLoopProxy;
 
 /// Implementation of `NavigatorBackend` for non-web environments that can call
 /// out to a web browser.
-pub struct RetroNavigatorBackend {
+pub struct RetroNavigatorBackend<'a> {
     /// Sink for tasks sent to us through `spawn_future`.
     channel: Sender<OwnedFuture<(), Error>>,
-
-    /// Event sink to trigger a new task poll.
-    event_loop: EventLoopProxy<RuffleEvent>,
 
     /// The url to use for all relative fetches.
     base_url: Url,
@@ -30,16 +26,18 @@ pub struct RetroNavigatorBackend {
     client: Option<Rc<HttpClient>>,
 
     upgrade_to_https: bool,
+
+    context: GenericContext<'a>,
 }
 
-impl RetroNavigatorBackend {
+impl<'a> RetroNavigatorBackend<'a> {
     /// Construct a navigator backend with fetch and async capability.
     pub fn new(
         movie_url: Url,
         channel: Sender<OwnedFuture<(), Error>>,
-        event_loop: EventLoopProxy<RuffleEvent>,
         proxy: Option<Url>,
         upgrade_to_https: bool,
+        context: GenericContext,
         // TODO: Include a config parameter
     ) -> Self {
         let proxy = proxy.and_then(|url| url.as_str().parse().ok());
@@ -61,15 +59,15 @@ impl RetroNavigatorBackend {
 
         Self {
             channel,
-            event_loop,
             client,
             base_url,
             upgrade_to_https,
+            context,
         }
     }
 }
 
-impl NavigatorBackend for RetroNavigatorBackend {
+impl<'a> NavigatorBackend for RetroNavigatorBackend<'a> {
     fn navigate_to_url(
         &self,
         url: String,
@@ -137,6 +135,7 @@ impl NavigatorBackend for RetroNavigatorBackend {
                 let url = processed_url.into();
 
                 let body = std::fs::read(&path).or_else(|e| {
+                    /*
                     if cfg!(feature = "sandbox") {
                         use rfd::{FileDialog, MessageButtons, MessageDialog, MessageLevel};
                         use std::io::ErrorKind;
@@ -156,6 +155,7 @@ impl NavigatorBackend for RetroNavigatorBackend {
                             }
                         }
                     }
+                    */
 
                     Err(e)
                 }).map_err(|e| Error::FetchError(e.to_string()))?;
@@ -208,11 +208,11 @@ impl NavigatorBackend for RetroNavigatorBackend {
     fn spawn_future(&mut self, future: OwnedFuture<(), Error>) {
         self.channel.send(future).expect("working channel send");
 
-        if self.event_loop.send_event(RuffleEvent::TaskPoll).is_err() {
-            log::warn!(
-                "A task was queued on an event loop that has already ended. It will not be polled."
-            );
-        }
+        // if self.event_loop.send_event(RuffleEvent::TaskPoll).is_err() {
+        //     log::warn!(
+        //         "A task was queued on an event loop that has already ended. It will not be polled."
+        //     );
+        // }
     }
 
     fn pre_process_url(&self, mut url: Url) -> Url {

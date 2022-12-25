@@ -5,6 +5,7 @@ use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use ruffle_core::config::Letterbox;
+use crate::core::config::Config;
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
 
 #[derive(CoreOptions)]
@@ -155,17 +156,7 @@ pub struct Ruffle {
     vfs_interface_version: Option<u32>,
     av_info: Option<retro_system_av_info>,
 
-    autoplay: bool,
-    letterbox: Letterbox,
-    max_execution_duration: Duration,
-    warn_on_unsupported_content: bool,
-    load_behavior: LoadBehavior,
-    file_access_policy: FileAccessPolicy,
-    web_browser_access: WebBrowserAccess,
-    spoofed_url: Option<String>,
-    sample_rate: u32,
-
-
+    config: Config,
 }
 
 impl Ruffle {
@@ -174,17 +165,20 @@ impl Ruffle {
             player: None,
             vfs_interface_version: None,
             av_info: None,
-            autoplay: true,
-            letterbox: Letterbox::Fullscreen,
-            max_execution_duration: Duration::from_secs(15),
-            warn_on_unsupported_content: true,
-            load_behavior: LoadBehavior::Streaming,
-            file_access_policy: FileAccessPolicy::Never,
-            web_browser_access: WebBrowserAccess::Notify,
-            spoofed_url: None,
-            sample_rate: 44100,
+            config: Config {
+                autoplay: true,
+                letterbox: Letterbox::Fullscreen,
+                max_execution_duration: Duration::from_secs(15),
+                warn_on_unsupported_content: true,
+                load_behavior: LoadBehavior::Streaming,
+                file_access_policy: FileAccessPolicy::Never,
+                web_browser_access: WebBrowserAccess::Notify,
+                spoofed_url: None,
+                sample_rate: 44100,
+            }
         }
     }
 }
 
 mod core;
+mod config;

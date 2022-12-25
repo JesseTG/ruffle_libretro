@@ -1,19 +1,25 @@
-use log::error;
 use std::borrow::BorrowMut;
 use std::error::Error;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::slice::from_raw_parts;
 
+use log::error;
+use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::events::KeyCode;
 use ruffle_core::tag_utils::SwfMovie;
 use ruffle_core::{PlayerBuilder, PlayerEvent};
+use ruffle_render::backend::null::NullRenderer;
+use ruffle_render::backend::ViewportDimensions;
 use ruffle_video_software::backend::SoftwareVideoBackend;
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
 use rust_libretro::environment::{get_save_directory, set_pixel_format};
-use rust_libretro::sys::{retro_game_geometry, retro_game_info, retro_game_info_ext, retro_hw_context_type, retro_hw_render_interface, retro_key, retro_mod, retro_pixel_format, retro_system_av_info, retro_system_timing};
-use rust_libretro::types::{MemoryAccess, PixelFormat, SystemInfo};
+use rust_libretro::sys::{
+    retro_game_geometry, retro_game_info, retro_hw_context_type, retro_hw_render_interface, retro_key, retro_mod,
+    retro_pixel_format, retro_proc_address_t, retro_system_av_info, retro_system_timing,
+};
+use rust_libretro::types::{PixelFormat, SystemInfo};
 
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
@@ -52,7 +58,7 @@ impl Core for Ruffle {
         self.vfs_interface_version = match ctx.enable_vfs_interface(3) {
             Ok(version) => Some(version),
             Err(error) => {
-                log::error!("[ruffle] Failed to initialize VFS interface: {error}");
+                error!("[ruffle] Failed to initialize VFS interface: {error}");
                 None
             }
         };
@@ -91,7 +97,11 @@ impl Core for Ruffle {
         let game = game.ok_or_else(|| "No game was provided")?;
         let buffer = unsafe { from_raw_parts(game.data as *const u8, game.size as usize) };
         let movie = SwfMovie::from_data(buffer, None, None)?;
-        let movie_size = (movie.width().to_pixels(), movie.height().to_pixels());
+        let dimensions = ViewportDimensions {
+            width: movie.width().to_pixels().round() as u32,
+            height: movie.height().to_pixels().round() as u32,
+            scale_factor: 1.0f64, // TODO: figure this out
+        };
 
         if !ctx.set_pixel_format(PixelFormat::XRGB8888) {
             return Err("RETRO_PIXEL_FORMAT_XRGB8888 not supported by this frontend".into());
@@ -107,42 +117,42 @@ impl Core for Ruffle {
 
         self.av_info = Some(retro_system_av_info {
             geometry: retro_game_geometry {
-                base_width: movie_size.0.round() as u32,
-                base_height: movie_size.1.round() as u32,
-                max_width: movie_size.0.round() as u32,
-                max_height: movie_size.1.round() as u32,
-                aspect_ratio: (movie_size.0 / movie_size.1) as f32,
+                base_width: dimensions.width,
+                base_height: dimensions.height,
+                max_width: dimensions.width,
+                max_height: dimensions.height,
+                aspect_ratio: (dimensions.width as f32) / (dimensions.height as f32),
             },
             timing: retro_system_timing {
                 fps: f64::from(movie.frame_rate()),
-                sample_rate: SAMPLE_RATE, // TODO: Configure
+                sample_rate: self.config.sample_rate as f64,
             },
         });
 
-        let environment_callback = unsafe { ctx.environment_callback() };
         let builder = PlayerBuilder::new()
             .with_movie(movie)
             .with_ui(RetroUiBackend::new(ctx))
             .with_log(RetroLogBackend::new())
             .with_audio(RetroAudioBackend::new(2, SAMPLE_RATE as u32))
-            .with_renderer(RetroRenderGlBackend::new())
-            .with_navigator(RetroNavigatorBackend::new())
+            .with_renderer(NullRenderer::new(dimensions))
+            .with_navigator(NullNavigatorBackend::new())
             .with_video(SoftwareVideoBackend::new())
-            .with_autoplay(self.autoplay)
-            .with_letterbox(self.letterbox)
-            .with_max_execution_duration(self.max_execution_duration)
-            .with_warn_on_unsupported_content(self.warn_on_unsupported_content)
-            .with_viewport_dimensions(movie_size.0.round() as u32, movie_size.1.round() as u32, 72.0)
+            .with_storage(MemoryStorageBackend::new())
+            .with_autoplay(self.config.autoplay)
+            .with_letterbox(self.config.letterbox)
+            .with_max_execution_duration(self.config.max_execution_duration)
+            .with_warn_on_unsupported_content(self.config.warn_on_unsupported_content)
+            .with_viewport_dimensions(dimensions.width, dimensions.height, dimensions.scale_factor)
             .with_fullscreen(true)
-            .with_load_behavior(self.load_behavior)
-            .with_spoofed_url(self.spoofed_url.clone());
+            .with_load_behavior(self.config.load_behavior)
+            .with_spoofed_url(self.config.spoofed_url.clone());
 
-        let environment_callback = unsafe { ctx.environment_callback() };
-        let save_directory = unsafe { get_save_directory(*environment_callback) };
-        let builder = match (save_directory, self.vfs_interface_version) {
-            (Some(base_path), Some(_)) => builder.with_storage(RetroVfsStorageBackend::new(base_path, ctx)?),
-            _ => builder.with_storage(MemoryStorageBackend::new()),
-        };
+        // let environment_callback = unsafe { ctx.environment_callback() };
+        // let save_directory = unsafe { get_save_directory(*environment_callback) };
+        // let builder = match (save_directory, self.vfs_interface_version) {
+        //     (Some(base_path), Some(_)) => builder.with_storage(RetroVfsStorageBackend::new(base_path, ctx)?),
+        //     _ => builder.with_storage(MemoryStorageBackend::new()),
+        // };
 
         let player = builder.build();
         player.into_inner().unwrap().set_is_playing(true);
@@ -163,11 +173,11 @@ impl Core for Ruffle {
     fn on_keyboard_event(&mut self, down: bool, keycode: retro_key, character: u32, key_modifiers: retro_mod) {
         let event = match (down, keycode) {
             (true, keycode) => PlayerEvent::KeyDown {
-                key_code: <KeyCode as util::From<retro_key>>::from(keycode),
+                key_code: util::keyboard::to_key_code(keycode),
                 key_char: None,
             },
             (false, keycode) => PlayerEvent::KeyUp {
-                key_code: <KeyCode as util::From<retro_key>>::from(keycode),
+                key_code: util::keyboard::to_key_code(keycode),
                 key_char: None,
             },
         };

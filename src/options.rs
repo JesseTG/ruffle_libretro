@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 pub enum FileAccessPolicy {
     Never,
     Notify,
