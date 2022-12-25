@@ -16,11 +16,11 @@ pub struct RetroUiBackend<'a> {
     cursor_visible: bool,
     cursor: MouseCursor,
     cursor_position: (i32, i32),
-    context: &'a GenericContext<'a>,
+    context: GenericContext<'a>,
 }
 
 impl<'a> RetroUiBackend<'a> {
-    pub fn new(context: &'a GenericContext) -> Self {
+    pub fn new(context: GenericContext) -> Self {
         Self {
             clipboard: Clipboard::new().unwrap(),
             cursor_visible: true,

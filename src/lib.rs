@@ -4,8 +4,8 @@ use crate::core::Ruffle;
 
 mod backend;
 mod util;
-mod options;
 mod core;
+mod options;
 
 pub mod built_info {
     // The file has been placed there by the build script.
