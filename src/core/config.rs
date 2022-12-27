@@ -13,4 +13,5 @@ pub struct Config {
     pub(crate) web_browser_access: WebBrowserAccess,
     pub(crate) spoofed_url: Option<String>,
     pub(crate) sample_rate: u32,
+    pub(crate) msaa: u8,
 }

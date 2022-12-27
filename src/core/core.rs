@@ -2,6 +2,7 @@ use std::borrow::BorrowMut;
 use std::error::Error;
 use std::ffi::{CStr, CString};
 use std::slice::from_raw_parts;
+use std::sync::Arc;
 
 use log::error;
 use ruffle_core::backend::navigator::NullNavigatorBackend;
@@ -11,20 +12,24 @@ use ruffle_core::tag_utils::SwfMovie;
 use ruffle_core::{PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::null::NullRenderer;
 use ruffle_render::backend::ViewportDimensions;
+use ruffle_render_wgpu::backend::WgpuRenderBackend;
+use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_video_software::backend::SoftwareVideoBackend;
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
 use rust_libretro::environment::{get_save_directory, set_pixel_format};
 use rust_libretro::sys::{
-    retro_game_geometry, retro_game_info, retro_hw_context_type, retro_hw_render_interface, retro_key, retro_mod,
-    retro_pixel_format, retro_proc_address_t, retro_system_av_info, retro_system_timing,
+    retro_game_geometry, retro_game_info, retro_hw_context_type, retro_hw_render_callback, retro_hw_render_interface,
+    retro_key, retro_mod, retro_pixel_format, retro_proc_address_t, retro_system_av_info, retro_system_timing,
 };
 use rust_libretro::types::{PixelFormat, SystemInfo};
+use rust_libretro::{retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
+use wgpu::Adapter;
 
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::navigator::RetroNavigatorBackend;
-use crate::backend::render::gl::RetroRenderGlBackend;
+use crate::backend::render::gl::RetroRenderGlowBackend;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::Ruffle;
@@ -107,13 +112,30 @@ impl Core for Ruffle {
             return Err("RETRO_PIXEL_FORMAT_XRGB8888 not supported by this frontend".into());
         }
 
+        let hw_render = retro_hw_render_callback {
+            context_type: retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL,
+            bottom_left_origin: true,
+            version_major: 4,
+            version_minor: 0,
+            cache_context: true,
+            debug_context: true,
+
+            depth: false,   // obsolete
+            stencil: false, // obsolete
+
+            context_reset: Some(retro_hw_context_reset_callback),
+            context_destroy: Some(retro_hw_context_destroyed_callback),
+
+            // Set by the frontend
+            get_current_framebuffer: None,
+            get_proc_address: None,
+        };
+
         unsafe {
-            if !ctx.enable_hw_render(retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL, true, 4, 0, true) {
+            if !ctx.set_hw_render(hw_render) {
                 return Err("OpenGL context not supported".into());
             }
         }
-
-        let ctx = GenericContext::from(ctx);
 
         self.av_info = Some(retro_system_av_info {
             geometry: retro_game_geometry {
@@ -129,12 +151,26 @@ impl Core for Ruffle {
             },
         });
 
+        let get_proc = hw_render.get_proc_address.unwrap();
+        let descriptors: Descriptors = futures::executor::block_on(match hw_render.context_type {
+            retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL
+            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES2
+            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES3
+            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL_CORE
+            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES_VERSION => unsafe {
+                WgpuRenderBackend::build_descriptors_for_gl(get_proc, None)?
+            },
+            _ => Err("Context not available")?,
+        });
+        let descriptors = Arc::new(descriptors);
+
+        let ctx = GenericContext::from(ctx);
         let builder = PlayerBuilder::new()
             .with_movie(movie)
             .with_ui(RetroUiBackend::new(ctx))
             .with_log(RetroLogBackend::new())
             .with_audio(RetroAudioBackend::new(2, SAMPLE_RATE as u32))
-            .with_renderer(NullRenderer::new(dimensions))
+            .with_renderer(WgpuRenderBackend::new(descriptors))
             .with_navigator(NullNavigatorBackend::new())
             .with_video(SoftwareVideoBackend::new())
             .with_storage(MemoryStorageBackend::new())

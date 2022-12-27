@@ -73,6 +73,19 @@ When letterboxed, black bars will be rendered around the exterior margins of the
     "15"
 },
 {
+    "ruffle_msaa",
+    "Video > MSAA",
+    "MSAA",
+    "TODO",
+    "",
+    "video_settings",
+    {
+        { "0", "Off" },
+        { "2", "2x" },
+        { "4", "4x" },
+    },
+},
+{
     "ruffle_warn_on_unsupported_content",
     "Content > Warn on Unsupported Content",
     "Warn on Unsupported Content",
@@ -175,10 +188,11 @@ impl Ruffle {
                 web_browser_access: WebBrowserAccess::Notify,
                 spoofed_url: None,
                 sample_rate: 44100,
+                msaa: 0,
             }
         }
     }
 }
 
 mod core;
-mod config;
+pub mod config;
