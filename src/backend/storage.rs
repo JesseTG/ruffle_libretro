@@ -78,7 +78,7 @@ impl RetroVfsStorageBackend {
         let cpath = CString::new(path.to_str().ok_or(StorageError::InvalidUnicodePath)?)?;
         match unsafe { vfs.mkdir.ok_or(StorageError::OperationUnavailable("mkdir"))?(cpath.as_ptr()) } {
             0 | -2 => {
-                debug!("[ruffle] Created or using existing storage dir {path:?}");
+                debug!("Created or using existing storage dir {path:?}");
                 Ok(())
             } // Success
             error => Err(StorageError::MkdirError(error, path.clone()).into()),
@@ -106,7 +106,7 @@ impl StorageBackend for RetroVfsStorageBackend {
                 )
             };
             if handle.is_null() {
-                error!("[ruffle] Failed to open {path:?}");
+                error!("Failed to open {path:?}");
                 return None;
             }
             // Return None if the file doesn't exist or its path is invalid
@@ -117,7 +117,7 @@ impl StorageBackend for RetroVfsStorageBackend {
             match vfs.size.map(|size| size(handle)) {
                 None | Some(-1) => {
                     // Error, either vfs.size wasn't provided or it returned -1
-                    error!("[ruffle] Failed to get size of {path:?}");
+                    error!("Failed to get size of {path:?}");
                     vfs.close?(handle);
                     return None;
                     // If vfs.close fails or wasn't provided, not much we can do about it
@@ -131,7 +131,7 @@ impl StorageBackend for RetroVfsStorageBackend {
             .map(|read| unsafe { read(handle, buffer.as_mut_ptr() as *mut _, size as u64) })
         {
             None | Some(-1) => {
-                error!("[ruffle] Failed to read from {size}-byte file {path:?}");
+                error!("Failed to read from {size}-byte file {path:?}");
                 unsafe {
                     vfs.close?(handle);
                 }
@@ -139,7 +139,7 @@ impl StorageBackend for RetroVfsStorageBackend {
                 // If vfs.close fails or wasn't provided, not much we can do about it
             }
             Some(bytes_read) if bytes_read != size => {
-                warn!("[ruffle] Expected to read {size} bytes from {path:?}, got {bytes_read}");
+                warn!("Expected to read {size} bytes from {path:?}, got {bytes_read}");
             }
             Some(_) => {} // Success, no action needed
         };
@@ -147,7 +147,7 @@ impl StorageBackend for RetroVfsStorageBackend {
         match vfs.close.map(|close| unsafe { close(handle) }) {
             Some(0) => {} // Success, no action needed
             _ => {
-                warn!("[ruffle] Failed to close file handle for {path:?}");
+                warn!("Failed to close file handle for {path:?}");
             }
         };
 
@@ -182,11 +182,11 @@ impl StorageBackend for RetroVfsStorageBackend {
                 )
             }) {
                 None => {
-                    error!("[ruffle] open operation not available");
+                    error!("open operation not available");
                     return false;
                 }
                 Some(handle) if handle.is_null() => {
-                    error!("[ruffle] Failed to open {path:?}");
+                    error!("Failed to open {path:?}");
                     return false;
                 }
                 Some(handle) => handle,
@@ -199,13 +199,13 @@ impl StorageBackend for RetroVfsStorageBackend {
             .map(|write| unsafe { write(handle, value.as_ptr() as _, value.len() as u64) })
         {
             None => {
-                error!("[ruffle] write operation not available");
+                error!("write operation not available");
                 vfs.close.map(|close| unsafe { close(handle) });
                 false
                 // If vfs.close fails or wasn't provided, not much we can do about it
             }
             Some(-1) => {
-                error!("[ruffle] Failed to write {} bytes to {path:?}", value.len());
+                error!("Failed to write {} bytes to {path:?}", value.len());
                 vfs.close.map(|close| unsafe { close(handle) });
                 false
                 // If vfs.close fails or wasn't provided, not much we can do about it
@@ -214,7 +214,7 @@ impl StorageBackend for RetroVfsStorageBackend {
                 match vfs.close.map(|close| unsafe { close(handle) }) {
                     Some(0) => {} // Success, no action needed
                     _ => {
-                        warn!("[ruffle] Failed to close file handle for {path:?}");
+                        warn!("Failed to close file handle for {path:?}");
                     }
                 };
                 true
@@ -238,7 +238,7 @@ impl StorageBackend for RetroVfsStorageBackend {
         match vfs.remove.map(|remove| unsafe { remove(path.as_ptr()) }) {
             Some(0) => {}
             None | Some(_) => {
-                error!("[ruffle] Failed to remove {path:?}");
+                error!("Failed to remove {path:?}");
             }
         };
     }
