@@ -128,8 +128,14 @@ impl Core for Ruffle {
             get_proc_address: None,
         };
 
-        if !ctx.set_hw_render(hw_render) {
-            return Err("OpenGL context not supported".into());
+        let ctx = GenericContext::from(ctx);
+        let environment_callback = *unsafe { ctx.environment_callback() };
+        unsafe {
+            // Using ctx.set_hw_render doesn't set the proc address
+            match environment::set_ptr(environment_callback, RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render) {
+                Some(true) => {}
+                _ => return Err("Failed to get hw render".into()),
+            };
         }
 
         self.av_info = Some(retro_system_av_info {
@@ -166,8 +172,6 @@ impl Core for Ruffle {
             },
             _ => Err("Context not available")?,
         })?;
-        let ctx = GenericContext::from(ctx);
-        let environment_callback = *unsafe { ctx.environment_callback() };
         let builder = PlayerBuilder::new()
             .with_movie(movie)
             .with_ui(RetroUiBackend::new(environment_callback))
@@ -221,7 +225,6 @@ impl Core for Ruffle {
             .and_then(|s: &str| s.parse::<u64>().ok())
             .map(Duration::from_secs)
             .unwrap_or(defaults::MAX_EXECUTION_DURATION);
-
 
         self.config.msaa = ctx
             .get_variable("ruffle_msaa")
