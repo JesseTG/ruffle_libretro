@@ -179,18 +179,7 @@ impl Ruffle {
             player: None,
             vfs_interface_version: None,
             av_info: None,
-            config: Config {
-                autoplay: config::defaults::AUTOPLAY,
-                letterbox: config::defaults::LETTERBOX,
-                max_execution_duration: config::defaults::MAX_EXECUTION_DURATION,
-                warn_on_unsupported_content: config::defaults::WARN_ON_UNSUPPORTED_CONTENT,
-                load_behavior: config::defaults::LOAD_BEHAVIOR,
-                file_access_policy: config::defaults::FILE_ACCESS_POLICY,
-                web_browser_access: config::defaults::WEB_BROWSER_ACCESS,
-                spoofed_url: None,
-                sample_rate: config::defaults::SAMPLE_RATE,
-                msaa: config::defaults::MSAA,
-            }
+            config: Config::new(),
         }
     }
 }

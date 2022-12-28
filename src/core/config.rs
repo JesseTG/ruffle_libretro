@@ -16,6 +16,23 @@ pub struct Config {
     pub(crate) msaa: u8,
 }
 
+impl Config {
+    pub fn new() -> Self {
+        Self {
+            autoplay: defaults::AUTOPLAY,
+            letterbox: defaults::LETTERBOX,
+            max_execution_duration: defaults::MAX_EXECUTION_DURATION,
+            warn_on_unsupported_content: defaults::WARN_ON_UNSUPPORTED_CONTENT,
+            load_behavior: defaults::LOAD_BEHAVIOR,
+            file_access_policy: defaults::FILE_ACCESS_POLICY,
+            web_browser_access: defaults::WEB_BROWSER_ACCESS,
+            spoofed_url: None,
+            sample_rate: defaults::SAMPLE_RATE,
+            msaa: defaults::MSAA,
+        }
+    }
+}
+
 pub mod defaults {
     use ruffle_core::config::Letterbox;
     use ruffle_core::LoadBehavior;
