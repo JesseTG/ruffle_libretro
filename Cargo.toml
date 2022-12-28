@@ -30,7 +30,7 @@ thiserror = "1.0.38"
 url = "2.3.1"
 webbrowser = "0.8.2"
 wgpu = { version = "0.14.2", features = ["angle"] }
-wgpu-hal = { version = "0.14.1", features = ["gles", "dx12", "dx11", "vulkan"] }
+wgpu-hal = { version = "0.14.1", features = ["gles", "vulkan"] }
 
 [build-dependencies]
 built = "0.5"
