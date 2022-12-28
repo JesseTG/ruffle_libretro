@@ -1,34 +1,37 @@
-use std::borrow::{Borrow, BorrowMut};
+use std::borrow::Borrow;
 use std::error::Error;
 use std::ffi::CString;
 use std::mem::transmute;
 use std::ptr;
-use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::sync::Arc;
+use std::time::Duration;
 
 use log::{error, info};
+use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
+use ruffle_core::config::Letterbox;
 use ruffle_core::tag_utils::SwfMovie;
-use ruffle_core::{PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_video_software::backend::SoftwareVideoBackend;
+use rust_libretro::{retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
+use rust_libretro::environment::get_save_directory;
 use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
-use rust_libretro::{retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
-use rust_libretro::environment::get_save_directory;
 
+use crate::{built_info, util};
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::render::target::RetroRenderTarget;
-use crate::backend::ui::RetroUiBackend;
-use crate::core::Ruffle;
-use crate::{built_info, util};
 use crate::backend::storage::RetroVfsStorageBackend;
+use crate::backend::ui::RetroUiBackend;
+use crate::core::config::defaults;
+use crate::core::Ruffle;
+use crate::options::{FileAccessPolicy, WebBrowserAccess};
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -200,12 +203,69 @@ impl Core for Ruffle {
     fn on_unload_game(&mut self, _ctx: &mut UnloadGameContext) {}
 
     fn on_options_changed(&mut self, ctx: &mut OptionsChangedContext) {
-        match ctx.get_variable("ruffle_autoplay") {
-            Some("true") => self.config.autoplay = true,
-            Some("false") => self.config.autoplay = false,
-            _ => self.config.autoplay = true,
+        self.config.autoplay = match ctx.get_variable("ruffle_autoplay") {
+            Some("true") => true,
+            Some("false") => false,
+            _ => defaults::AUTOPLAY,
         };
-        todo!()
+
+        self.config.letterbox = match ctx.get_variable("ruffle_letterbox") {
+            Some("off") => Letterbox::Off,
+            Some("fullscreen") => Letterbox::Fullscreen,
+            Some("on") => Letterbox::On,
+            _ => defaults::LETTERBOX,
+        }; // TODO: Should I reset the driver if this changed?
+
+        self.config.max_execution_duration = ctx
+            .get_variable("ruffle_max_execution_duration")
+            .and_then(|s: &str| s.parse::<u64>().ok())
+            .map(Duration::from_secs)
+            .unwrap_or(defaults::MAX_EXECUTION_DURATION);
+
+
+        self.config.msaa = ctx
+            .get_variable("ruffle_msaa")
+            .and_then(|s: &str| s.parse::<u8>().ok())
+            .unwrap_or(defaults::MSAA);
+
+        self.config.warn_on_unsupported_content = match ctx.get_variable("ruffle_warn_on_unsupported_content") {
+            Some("true") => true,
+            Some("false") => false,
+            _ => defaults::WARN_ON_UNSUPPORTED_CONTENT,
+        };
+
+        self.config.file_access_policy = match ctx.get_variable("ruffle_file_access_policy") {
+            Some("never") => FileAccessPolicy::Never,
+            Some("notify") => FileAccessPolicy::Notify,
+            Some("always") => FileAccessPolicy::Always,
+            _ => defaults::FILE_ACCESS_POLICY,
+        };
+
+        self.config.web_browser_access = match ctx.get_variable("ruffle_web_browser_access") {
+            Some("off") => WebBrowserAccess::Ignore,
+            Some("off-notify") => WebBrowserAccess::Notify,
+            Some("external") => WebBrowserAccess::OpenInBrowser,
+            _ => defaults::WEB_BROWSER_ACCESS,
+        };
+
+        self.config.sample_rate = ctx
+            .get_variable("ruffle_audio_sample_rate")
+            .and_then(|s: &str| s.parse::<u32>().ok())
+            .unwrap_or(defaults::SAMPLE_RATE);
+
+        self.config.load_behavior = match ctx.get_variable("ruffle_load_behavior") {
+            Some("streaming") => LoadBehavior::Streaming,
+            Some("blocking") => LoadBehavior::Blocking,
+            Some("delayed") => LoadBehavior::Delayed,
+            _ => defaults::LOAD_BEHAVIOR,
+        };
+
+        if let Some(player) = &self.player {
+            let mut player = player.lock().unwrap();
+
+            player.set_letterbox(self.config.letterbox); // TODO: What if old letterbox != new letterbox?
+            player.set_max_execution_duration(self.config.max_execution_duration);
+        }
     }
 
     fn on_keyboard_event(&mut self, down: bool, keycode: retro_key, character: u32, key_modifiers: retro_mod) {
