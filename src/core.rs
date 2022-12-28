@@ -180,16 +180,16 @@ impl Ruffle {
             vfs_interface_version: None,
             av_info: None,
             config: Config {
-                autoplay: true,
-                letterbox: Letterbox::Fullscreen,
-                max_execution_duration: Duration::from_secs(15),
-                warn_on_unsupported_content: true,
-                load_behavior: LoadBehavior::Streaming,
-                file_access_policy: FileAccessPolicy::Never,
-                web_browser_access: WebBrowserAccess::Notify,
+                autoplay: config::defaults::AUTOPLAY,
+                letterbox: config::defaults::LETTERBOX,
+                max_execution_duration: config::defaults::MAX_EXECUTION_DURATION,
+                warn_on_unsupported_content: config::defaults::WARN_ON_UNSUPPORTED_CONTENT,
+                load_behavior: config::defaults::LOAD_BEHAVIOR,
+                file_access_policy: config::defaults::FILE_ACCESS_POLICY,
+                web_browser_access: config::defaults::WEB_BROWSER_ACCESS,
                 spoofed_url: None,
-                sample_rate: 44100,
-                msaa: 0,
+                sample_rate: config::defaults::SAMPLE_RATE,
+                msaa: config::defaults::MSAA,
             }
         }
     }
