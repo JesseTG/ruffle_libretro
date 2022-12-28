@@ -15,3 +15,20 @@ pub struct Config {
     pub(crate) sample_rate: u32,
     pub(crate) msaa: u8,
 }
+
+pub mod defaults {
+    use ruffle_core::config::Letterbox;
+    use ruffle_core::LoadBehavior;
+    use std::time::Duration;
+    use crate::options::{FileAccessPolicy, WebBrowserAccess};
+
+    pub const AUTOPLAY: bool = true;
+    pub const LETTERBOX: Letterbox = Letterbox::Fullscreen;
+    pub const MAX_EXECUTION_DURATION: Duration = Duration::from_secs(15);
+    pub const MSAA: u8 = 0;
+    pub const WARN_ON_UNSUPPORTED_CONTENT: bool = true;
+    pub const LOAD_BEHAVIOR: LoadBehavior = LoadBehavior::Streaming;
+    pub const FILE_ACCESS_POLICY: FileAccessPolicy = FileAccessPolicy::Never;
+    pub const WEB_BROWSER_ACCESS: WebBrowserAccess = WebBrowserAccess::Ignore;
+    pub const SAMPLE_RATE: u32 = 44100;
+}
