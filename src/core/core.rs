@@ -51,16 +51,14 @@ impl Core for Ruffle {
         }
 
         ctx.set_support_no_game(false);
-        self.vfs_interface_version = unsafe {
-            match ctx.enable_vfs_interface(3) {
-                Ok(version) => {
-                    info!("[ruffle] Requested VFS interface version >= 3, got {version}");
-                    Some(version)
-                }
-                Err(error) => {
-                    error!("[ruffle] Failed to initialize VFS interface: {error}");
-                    None
-                }
+        self.vfs_interface_version = match { unsafe { ctx.enable_vfs_interface(3) } } {
+            Ok(version) => {
+                info!("[ruffle] Requested VFS interface version >= 3, got {version}");
+                Some(version)
+            }
+            Err(error) => {
+                error!("[ruffle] Failed to initialize VFS interface: {error}");
+                None
             }
         };
     }
