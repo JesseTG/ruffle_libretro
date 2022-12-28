@@ -1,34 +1,58 @@
-use std::error::Error;
-use std::path::{Component, Path, PathBuf};
-use log::{error, warn, debug};
+use log::{debug, error, warn};
 use ruffle_core::backend::storage::StorageBackend;
-use rust_libretro::contexts::GenericContext;
+use rust_libretro::environment;
 use rust_libretro::types::{VfsFileOpenFlags, VfsFileOpenHints};
+use rust_libretro_sys::{retro_environment_t, retro_vfs_interface, retro_vfs_interface_info};
+use std::error::Error;
+use std::ffi::{c_int, CString};
+use std::path::{Component, Path, PathBuf};
+use std::ptr;
 use thiserror::Error as ThisError;
 
 #[derive(ThisError, Debug)]
 pub enum StorageError {
+    #[error("Failed to get VFS interface v{0}")]
+    FailedToGetInterface(u32),
+
     #[error("Save data path is invalid Unicode")]
     InvalidUnicodePath,
+
+    #[error("Could not get pointer for VFS operation {0}")]
+    OperationUnavailable(&'static str),
+
+    #[error("Error {0} in calling vfs_mkdir({1})")]
+    MkdirError(c_int, PathBuf),
 }
 
-pub struct RetroVfsStorageBackend<'a> {
+pub struct RetroVfsStorageBackend {
     base_path: PathBuf,
     shared_objects_path: PathBuf,
-    context: GenericContext<'a>,
+    vfs: retro_vfs_interface_info,
 }
 
-impl<'a> RetroVfsStorageBackend<'a> {
-    pub fn new(base_path: &Path, context: GenericContext) -> Result<Self, Box<dyn Error>> {
+impl RetroVfsStorageBackend {
+    pub fn new(base_path: &Path, environment: retro_environment_t) -> Result<Self, Box<dyn Error>> {
         let shared_objects_path = base_path.join("SharedObjects");
+        let vfs = environment::get_vfs_interface(
+            environment,
+            retro_vfs_interface_info {
+                required_interface_version: 3,
+                iface: ptr::null_mut(),
+            },
+        )
+        .and_then(|vfs| if vfs.iface.is_null() { None } else { Some(vfs) })
+        .ok_or(StorageError::FailedToGetInterface(3))?;
+        // Get the VFS interface and ensure that the returned pointer is non-null
 
-        return match Self::ensure_storage_dir(&context, &shared_objects_path) {
-            Ok(_) => Ok(Self {
-                base_path: PathBuf::from(base_path),
-                shared_objects_path,
-                context,
-            }),
-            Err(error) => Err(error),
+        return unsafe {
+            match Self::ensure_storage_dir(*vfs.iface, &shared_objects_path) {
+                Ok(_) => Ok(Self {
+                    base_path: PathBuf::from(base_path),
+                    shared_objects_path,
+                    vfs,
+                }),
+                Err(error) => Err(error),
+            }
         };
     }
 
@@ -48,103 +72,168 @@ impl<'a> RetroVfsStorageBackend<'a> {
         self.base_path.join(name.replacen("/#", "/", 1))
     }
 
-    fn ensure_storage_dir(context: &GenericContext, path: &PathBuf) -> Result<(), Box<dyn Error>> {
-        return match context.vfs_mkdir(path.to_str().ok_or(StorageError::InvalidUnicodePath)?) {
-            Ok(()) => {
-                debug!("[ruffle] Created storage dir {path:?}");
+    fn ensure_storage_dir(vfs: retro_vfs_interface, path: &PathBuf) -> Result<(), Box<dyn Error>> {
+        let cpath = CString::new(path.to_str().ok_or(StorageError::InvalidUnicodePath)?)?;
+        match vfs.mkdir.ok_or(StorageError::OperationUnavailable("mkdir"))?(cpath.as_ptr()) {
+            0 | -2 => {
+                debug!("[ruffle] Created or using existing storage dir {path:?}");
                 Ok(())
-            }
-            Err(e) if e.to_string().contains("Failed to create directory: Exists already") => Ok(()),
-            // TODO: Return a MkdirStatus result
-            Err(e) => {
-                warn!("[ruffle] Failed to create storage dir {path:?}: {e}");
-                Err(e)
-            }
-        };
+            } // Success
+            error => Err(StorageError::MkdirError(error, path.clone()).into()),
+        }
     }
 }
 
-impl<'a> StorageBackend for RetroVfsStorageBackend<'a> {
+impl StorageBackend for RetroVfsStorageBackend {
     fn get(&self, name: &str) -> Option<Vec<u8>> {
+        assert!(!self.vfs.iface.is_null()); // Verified by the constructor
+
         let path = self.get_shared_object_path(name);
         if !Self::is_path_allowed(&path) {
             return None;
         }
 
-        let mut handle = self
-            .context
-            .vfs_open(path.to_str()?, VfsFileOpenFlags::READ, VfsFileOpenHints::NONE)
-            .ok()?;
-        // Return None if the file doesn't exist or its path is invalid
-
-        let result = match self.context.vfs_size(&mut handle) {
-            Ok(size) => self.context.vfs_read(&mut handle, size as usize),
-            Err(error) => Err(error),
+        let vfs = unsafe { *self.vfs.iface };
+        let handle = {
+            let path = CString::new(path.to_str()?).ok()?;
+            let handle = vfs.open?(
+                path.as_ptr(),
+                VfsFileOpenFlags::READ.bits(),
+                VfsFileOpenHints::NONE.bits(),
+            );
+            if handle.is_null() {
+                error!("[ruffle] Failed to open {path:?}");
+                return None;
+            }
+            // Return None if the file doesn't exist or its path is invalid
+            handle
         };
 
-        if let Err(error) = self.context.vfs_close(handle) {
-            error!("[ruffle]: Failed to close {handle:?}: {error:?}");
-        }
+        let size = unsafe {
+            match vfs.size.map(|size| size(handle)) {
+                None | Some(-1) => {
+                    // Error, either vfs.size wasn't provided or it returned -1
+                    error!("[ruffle] Failed to get size of {path:?}");
+                    vfs.close?(handle);
+                    return None;
+                    // If vfs.close fails or wasn't provided, not much we can do about it
+                }
+                Some(size) => size,
+            }
+        };
+        let mut buffer: Vec<u8> = Vec::with_capacity(size as usize);
+        match vfs
+            .read
+            .map(|read| read(handle, buffer.as_mut_ptr() as *mut _, size as u64))
+        {
+            None | Some(-1) => {
+                error!("[ruffle] Failed to read from {size}-byte file {path:?}");
+                vfs.close?(handle);
+                return None;
+                // If vfs.close fails or wasn't provided, not much we can do about it
+            }
+            Some(bytes_read) if bytes_read != size => {
+                warn!("[ruffle] Expected to read {size} bytes from {path:?}, got {bytes_read}");
+            }
+            Some(_) => {} // Success, no action needed
+        };
 
-        return result.ok();
+        match vfs.close.map(|close| close(handle)) {
+            Some(0) => {} // Success, no action needed
+            _ => {
+                warn!("[ruffle] Failed to close file handle for {path:?}");
+            }
+        };
+
+        Some(buffer)
     }
 
     fn put(&mut self, name: &str, value: &[u8]) -> bool {
+        assert!(!self.vfs.iface.is_null()); // Verified by the constructor
         let path = self.get_shared_object_path(name);
         if !Self::is_path_allowed(&path) {
             return false;
         }
 
+        let vfs = unsafe { *self.vfs.iface };
         if let Some(parent_dir) = path.parent().and_then(|p| Some(PathBuf::from(p))) {
-            if let Err(e) = Self::ensure_storage_dir(&self.context, &parent_dir) {
+            if let Err(e) = Self::ensure_storage_dir(vfs, &parent_dir) {
                 return false;
             }
         }
 
-        let path = match path.to_str() {
-            Some(path) => path,
-            None => return false,
+        let handle = {
+            let path = match path.to_str().and_then(|path| CString::new(path).ok()) {
+                Some(path) => path,
+                None => return false,
+            };
+
+            match vfs.open.map(|open| {
+                open(
+                    path.as_ptr(),
+                    VfsFileOpenFlags::WRITE.bits(),
+                    VfsFileOpenHints::NONE.bits(),
+                )
+            }) {
+                None => {
+                    error!("[ruffle] open operation not available");
+                    return false;
+                }
+                Some(handle) if handle.is_null() => {
+                    error!("[ruffle] Failed to open {path:?}");
+                    return false;
+                }
+                Some(handle) => handle,
+            }
+            // Return false if the file doesn't exist or its path is invalid
         };
 
-        let mut handle = match self
-            .context
-            .vfs_open(path, VfsFileOpenFlags::WRITE, VfsFileOpenHints::NONE)
+        match vfs
+            .write
+            .map(|write| write(handle, value.as_ptr() as _, value.len() as u64))
         {
-            Ok(handle) => handle,
-            Err(error) => {
-                error!("[ruffle] Unable to open {path}: {error}");
-                return false;
-            }
-        };
-
-        // TODO: Open an issue with rust-libretro about mutability
-        let mut value = value.clone();
-        let success = match self.context.vfs_write(&mut handle, &mut value) {
-            Ok(written) => true,
-            Err(error) => {
-                error!("[ruffle] Failed to write to {path}: {error}");
+            None => {
+                error!("[ruffle] write operation not available");
+                vfs.close.map(|close| close(handle));
                 false
+                // If vfs.close fails or wasn't provided, not much we can do about it
             }
-        };
-
-        if let Err(error) = self.context.vfs_close(handle) {
-            error!("[ruffle]: Failed to close {handle:?}: {error:?}");
+            Some(-1) => {
+                error!("[ruffle] Failed to write {} bytes to {path:?}", value.len());
+                vfs.close.map(|close| close(handle));
+                false
+                // If vfs.close fails or wasn't provided, not much we can do about it
+            }
+            Some(_) => {
+                match vfs.close.map(|close| close(handle)) {
+                    Some(0) => {} // Success, no action needed
+                    _ => {
+                        warn!("[ruffle] Failed to close file handle for {path:?}");
+                    }
+                };
+                true
+            }
         }
-
-        return success;
     }
 
     fn remove_key(&mut self, name: &str) {
+        assert!(!self.vfs.iface.is_null()); // Verified by the constructor
         let path = self.get_shared_object_path(name);
         if !Self::is_path_allowed(&path) {
             return;
         }
 
-        if let Some(path) = path.to_str() {
-            match self.context.vfs_remove(path) {
-                Ok(_) => (),
-                Err(error) => error!("[ruffle] Failed to remove {path}: {error}"),
+        let path = match path.to_str().and_then(|path| CString::new(path).ok()) {
+            Some(path) => path,
+            None => return,
+        };
+
+        let vfs = unsafe { *self.vfs.iface };
+        match vfs.remove.map(|remove| remove(path.as_ptr())) {
+            Some(0) => {}
+            None | Some(_) => {
+                error!("[ruffle] Failed to remove {path:?}");
             }
-        }
+        };
     }
 }
