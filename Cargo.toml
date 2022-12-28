@@ -4,27 +4,32 @@ version = "0.0.0"
 edition = "2021"
 build = "build.rs"
 
+[lib]
+crate_type = ["rlib", "cdylib"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 arboard = "3.2.0"
 bytemuck = { version = "1.12.3", features = ["derive"] }
+futures = "0.3.25"
 gc-arena = { git = "https://github.com/ruffle-rs/gc-arena" }
 glow = "0.11.2"
 isahc = "1.7.2"
 libc = "0.2.139"
 log = "0.4.17"
-ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", features = ["audio", "default"] }
-ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", features = ["tessellator"] }
-ruffle_video = { git = "https://github.com/ruffle-rs/ruffle" }
-ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle" }
+ruffle_core = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-existing-context", features = ["audio", "default"] }
+ruffle_render = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-existing-context", features = ["tessellator"] }
+ruffle_video = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-existing-context" }
+ruffle_video_software = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-existing-context" }
 ruffle_render_wgpu = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-existing-context", features = ["clap", "with_hal", "gl", "vulkan", "wgpu-hal", "wgpu-core"] }
-rust-libretro = { version = "0.1.5", features = ["log", "unstable-env-commands"] }
-rust-libretro-proc = { version = "0.1.5" }
+rust-libretro = { git = "https://github.com/JesseTG/rust-libretro", branch = "jtg/all-headers", features = ["log", "unstable-env-commands"] }
+rust-libretro-sys = { git = "https://github.com/JesseTG/rust-libretro", branch = "jtg/all-headers" }
+rust-libretro-proc = { git = "https://github.com/JesseTG/rust-libretro", branch = "jtg/all-headers" }
 thiserror = "1.0.38"
 url = "2.3.1"
 webbrowser = "0.8.2"
-wgpu = "0.14.2"
+wgpu = { version = "0.14.2", features = ["angle"] }
 wgpu-hal = { version = "0.14.1", features = ["gles", "dx12", "dx11", "vulkan"] }
 
 [build-dependencies]

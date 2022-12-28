@@ -11,7 +11,7 @@ pub struct RetroAudioBackend {
 
 impl RetroAudioBackend {
     pub fn new(num_output_channels: u8, output_samplerate: u32) -> Self {
-        let mut mixer = AudioMixer::new(num_output_channels, output_samplerate);
+        let mixer = AudioMixer::new(num_output_channels, output_samplerate);
 
         Self {
             mixer,

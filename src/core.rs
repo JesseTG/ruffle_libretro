@@ -1,3 +1,4 @@
+use std::rc::Rc;
 use ruffle_core::{LoadBehavior, Player};
 use rust_libretro::contexts::GenericContext;
 use rust_libretro::sys::retro_system_av_info;

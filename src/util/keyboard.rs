@@ -151,5 +151,6 @@ pub fn to_key_code(key: retro_key) -> KeyCode {
         retro_key::RETROK_EURO => Unknown,
         retro_key::RETROK_UNDO => Unknown,
         retro_key::RETROK_OEM_102 => Unknown,
+        _ => Unknown,
     }
 }

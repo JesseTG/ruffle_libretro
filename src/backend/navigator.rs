@@ -37,7 +37,7 @@ impl<'a> RetroNavigatorBackend<'a> {
         channel: Sender<OwnedFuture<(), Error>>,
         proxy: Option<Url>,
         upgrade_to_https: bool,
-        context: GenericContext,
+        context: GenericContext<'a>,
         // TODO: Include a config parameter
     ) -> Self {
         let proxy = proxy.and_then(|url| url.as_str().parse().ok());

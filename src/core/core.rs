@@ -1,39 +1,34 @@
-use std::borrow::BorrowMut;
+use std::borrow::{Borrow, BorrowMut};
 use std::error::Error;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
+use std::mem::transmute;
+use std::ptr;
+use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::sync::Arc;
 
-use log::error;
+use log::{error, info};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
-use ruffle_core::events::KeyCode;
 use ruffle_core::tag_utils::SwfMovie;
 use ruffle_core::{PlayerBuilder, PlayerEvent};
-use ruffle_render::backend::null::NullRenderer;
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
-use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_video_software::backend::SoftwareVideoBackend;
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
-use rust_libretro::environment::{get_save_directory, set_pixel_format};
-use rust_libretro::sys::{
-    retro_game_geometry, retro_game_info, retro_hw_context_type, retro_hw_render_callback, retro_hw_render_interface,
-    retro_key, retro_mod, retro_pixel_format, retro_proc_address_t, retro_system_av_info, retro_system_timing,
-};
+use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
 use rust_libretro::{retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
-use wgpu::Adapter;
+use rust_libretro::environment::get_save_directory;
 
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
-use crate::backend::navigator::RetroNavigatorBackend;
-use crate::backend::render::gl::RetroRenderGlowBackend;
-use crate::backend::storage::RetroVfsStorageBackend;
+use crate::backend::render::target::RetroRenderTarget;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::Ruffle;
 use crate::{built_info, util};
+use crate::backend::storage::RetroVfsStorageBackend;
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -55,23 +50,22 @@ impl Core for Ruffle {
             return;
         }
 
-        if !ctx.enable_proc_address_interface() {
-            error!("enable_proc_address_interface failed");
-            return;
-        }
         ctx.set_support_no_game(false);
-        self.vfs_interface_version = match ctx.enable_vfs_interface(3) {
-            Ok(version) => Some(version),
-            Err(error) => {
-                error!("[ruffle] Failed to initialize VFS interface: {error}");
-                None
+        self.vfs_interface_version = unsafe {
+            match ctx.enable_vfs_interface(3) {
+                Ok(version) => {
+                    info!("[ruffle] Requested VFS interface version >= 3, got {version}");
+                    Some(version)
+                }
+                Err(error) => {
+                    error!("[ruffle] Failed to initialize VFS interface: {error}");
+                    None
+                }
             }
         };
     }
 
-    fn on_init(&mut self, _ctx: &mut InitContext) {
-        todo!()
-    }
+    fn on_init(&mut self, ctx: &mut InitContext) {}
 
     fn on_deinit(&mut self, _ctx: &mut DeinitContext) {
         todo!()
@@ -89,10 +83,14 @@ impl Core for Ruffle {
         ctx.poll_input();
         // TODO: Handle input
         ctx.get_joypad_state(0, 0);
-        let mut player = self.player.expect("TODO").get_mut().unwrap();
+        if let Some(player) = self.player.borrow() {
+            let mut player = player.lock().unwrap();
 
-        player.run_frame();
-        ctx.draw_hardware_frame(0, 0, 0);
+            player.run_frame();
+        }
+
+        let av_info = self.av_info.expect("av_info should've been initialized by now");
+        ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
 
         // TODO: Write out audio
         // TODO: React to changed settings
@@ -131,10 +129,8 @@ impl Core for Ruffle {
             get_proc_address: None,
         };
 
-        unsafe {
-            if !ctx.set_hw_render(hw_render) {
-                return Err("OpenGL context not supported".into());
-            }
+        if !ctx.set_hw_render(hw_render) {
+            return Err("OpenGL context not supported".into());
         }
 
         self.av_info = Some(retro_system_av_info {
@@ -151,29 +147,36 @@ impl Core for Ruffle {
             },
         });
 
-        let get_proc = hw_render.get_proc_address.unwrap();
-        let descriptors: Descriptors = futures::executor::block_on(match hw_render.context_type {
+        let get_proc_address = hw_render.get_proc_address.unwrap();
+        let descriptors = futures::executor::block_on(match hw_render.context_type {
             retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL
             | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES2
             | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES3
             | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL_CORE
             | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES_VERSION => unsafe {
-                WgpuRenderBackend::build_descriptors_for_gl(get_proc, None)?
+                WgpuRenderBackend::<RetroRenderTarget>::build_descriptors_for_gl(
+                    |sym| {
+                        CString::new(sym)
+                            .ok() // Get the symbol name ready for C...
+                            .and_then(|sym| get_proc_address(sym.as_ptr())) // Then get the function address from libretro...
+                            .map(|f| transmute(f)) // Then cast it to the right pointer type...
+                            .unwrap_or(ptr::null()) // ...or if all else fails, return a null pointer (gl will handle it)
+                    },
+                    None,
+                )
             },
             _ => Err("Context not available")?,
-        });
-        let descriptors = Arc::new(descriptors);
-
+        })?;
         let ctx = GenericContext::from(ctx);
+        let environment_callback = *unsafe { ctx.environment_callback() };
         let builder = PlayerBuilder::new()
             .with_movie(movie)
-            .with_ui(RetroUiBackend::new(ctx))
+            .with_ui(RetroUiBackend::new(environment_callback))
             .with_log(RetroLogBackend::new())
             .with_audio(RetroAudioBackend::new(2, SAMPLE_RATE as u32))
-            .with_renderer(WgpuRenderBackend::new(descriptors))
+            .with_renderer(WgpuRenderBackend::new(Arc::new(descriptors), RetroRenderTarget::new())?)
             .with_navigator(NullNavigatorBackend::new())
             .with_video(SoftwareVideoBackend::new())
-            .with_storage(MemoryStorageBackend::new())
             .with_autoplay(self.config.autoplay)
             .with_letterbox(self.config.letterbox)
             .with_max_execution_duration(self.config.max_execution_duration)
@@ -183,26 +186,27 @@ impl Core for Ruffle {
             .with_load_behavior(self.config.load_behavior)
             .with_spoofed_url(self.config.spoofed_url.clone());
 
-        // let environment_callback = unsafe { ctx.environment_callback() };
-        // let save_directory = unsafe { get_save_directory(*environment_callback) };
-        // let builder = match (save_directory, self.vfs_interface_version) {
-        //     (Some(base_path), Some(_)) => builder.with_storage(RetroVfsStorageBackend::new(base_path, ctx)?),
-        //     _ => builder.with_storage(MemoryStorageBackend::new()),
-        // };
+        let save_directory = unsafe { get_save_directory(environment_callback) };
+        let builder = match (save_directory, self.vfs_interface_version) {
+            (Some(base_path), Some(_)) => builder.with_storage(RetroVfsStorageBackend::new(base_path, environment_callback)?),
+            _ => builder.with_storage(MemoryStorageBackend::new()),
+        };
 
         let player = builder.build();
-        player.into_inner().unwrap().set_is_playing(true);
+        player.lock().unwrap().set_is_playing(true);
         self.player = Some(player);
 
         Ok(())
     }
 
-    fn on_unload_game(&mut self, _ctx: &mut UnloadGameContext) {
-        self.player.expect("TODO").into_inner().unwrap().destroy();
-    }
+    fn on_unload_game(&mut self, _ctx: &mut UnloadGameContext) {}
 
     fn on_options_changed(&mut self, ctx: &mut OptionsChangedContext) {
-        match ctx.get_variable("ruffle_autoplay") {};
+        match ctx.get_variable("ruffle_autoplay") {
+            Some("true") => self.config.autoplay = true,
+            Some("false") => self.config.autoplay = false,
+            _ => self.config.autoplay = true,
+        };
         todo!()
     }
 
@@ -217,13 +221,11 @@ impl Core for Ruffle {
                 key_char: None,
             },
         };
-        self.player.expect("TODO").into_inner().unwrap().handle_event(event);
+        self.player.as_mut().unwrap().lock().unwrap().handle_event(event);
         // TODO: Add these events to a queue, then give them all to the emulator in the main loop
     }
 
-    fn on_write_audio(&mut self, ctx: &mut AudioContext) {
-        let player = self.player.expect("TODO").into_inner().unwrap().audio().borrow_mut();
-    }
+    fn on_write_audio(&mut self, ctx: &mut AudioContext) {}
 
     fn on_hw_context_reset(&mut self) {
         /*
