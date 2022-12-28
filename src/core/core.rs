@@ -66,11 +66,9 @@ impl Core for Ruffle {
         };
     }
 
-    fn on_init(&mut self, ctx: &mut InitContext) {}
+    fn on_init(&mut self, _ctx: &mut InitContext) {}
 
-    fn on_deinit(&mut self, _ctx: &mut DeinitContext) {
-        todo!()
-    }
+    fn on_deinit(&mut self, _ctx: &mut DeinitContext) {}
 
     fn on_set_controller_port_device(&mut self, _port: u32, _device: u32, _ctx: &mut GenericContext) {
         todo!()
