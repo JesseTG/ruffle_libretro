@@ -7,23 +7,22 @@ use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{error, info};
-use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
+use log::{debug, error, info, trace};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
 use ruffle_core::tag_utils::SwfMovie;
+use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_video_software::backend::SoftwareVideoBackend;
-use rust_libretro::{retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
 use rust_libretro::environment::get_save_directory;
 use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
+use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 
-use crate::{built_info, util};
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::render::target::RetroRenderTarget;
@@ -32,6 +31,7 @@ use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
 use crate::core::Ruffle;
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
+use crate::{built_info, util};
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
