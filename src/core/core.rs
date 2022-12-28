@@ -189,7 +189,9 @@ impl Core for Ruffle {
 
         let save_directory = unsafe { get_save_directory(environment_callback) };
         let builder = match (save_directory, self.vfs_interface_version) {
-            (Some(base_path), Some(_)) => builder.with_storage(RetroVfsStorageBackend::new(base_path, environment_callback)?),
+            (Some(base_path), Some(_)) => {
+                builder.with_storage(RetroVfsStorageBackend::new(base_path, environment_callback)?)
+            }
             _ => builder.with_storage(MemoryStorageBackend::new()),
         };
 
