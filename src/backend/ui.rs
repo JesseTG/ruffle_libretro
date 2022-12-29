@@ -1,3 +1,5 @@
+use std::cell::Cell;
+use std::sync::Arc;
 use arboard::Clipboard;
 use log::error;
 use ruffle_core::backend::ui::{FullscreenError, MouseCursor, UiBackend};
@@ -17,11 +19,11 @@ pub struct RetroUiBackend {
     cursor_visible: bool,
     cursor: MouseCursor,
     cursor_position: (i32, i32),
-    environment: retro_environment_t,
+    environment: Arc<Cell<retro_environment_t>>,
 }
 
 impl RetroUiBackend {
-    pub fn new(environment: retro_environment_t) -> Self {
+    pub fn new(environment: Arc<Cell<retro_environment_t>>) -> Self {
         Self {
             clipboard: Clipboard::new().unwrap(),
             cursor_visible: true,
@@ -58,7 +60,7 @@ impl UiBackend for RetroUiBackend {
     fn display_unsupported_message(&self) {
         unsafe {
             environment::set_message_ext(
-                self.environment,
+                self.environment.get(),
                 DOWNLOAD_FAILED_MESSAGE,
                 3000,
                 0,
@@ -73,7 +75,7 @@ impl UiBackend for RetroUiBackend {
     fn display_root_movie_download_failed_message(&self) {
         unsafe {
             environment::set_message_ext(
-                self.environment,
+                self.environment.get(),
                 "Ruffle failed to open or download this file.",
                 3000,
                 0,
@@ -88,7 +90,7 @@ impl UiBackend for RetroUiBackend {
     fn message(&self, message: &str) {
         unsafe {
             environment::set_message_ext(
-                self.environment,
+                self.environment.get(),
                 message,
                 1000,
                 0,
