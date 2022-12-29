@@ -1,7 +1,9 @@
 use std::borrow::Borrow;
+use std::cell::Cell;
 use std::error::Error;
 use std::ffi::CString;
 use std::mem::transmute;
+use std::ops::Deref;
 use std::ptr;
 use std::slice::from_raw_parts;
 use std::sync::Arc;
@@ -49,21 +51,41 @@ impl Core for Ruffle {
     }
 
     fn on_set_environment(&mut self, initial: bool, ctx: &mut SetEnvironmentContext) {
-        if !initial {
-            return;
+        if initial {
+            ctx.set_support_no_game(false);
+            let vfs_interface_version = match { unsafe { ctx.enable_vfs_interface(3) } } {
+                Ok(version) => Some(version),
+                Err(error) => {
+                    error!("Failed to initialize VFS interface: {error}");
+                    None
+                }
+            };
         }
 
-        ctx.set_support_no_game(false);
-        self.vfs_interface_version = match { unsafe { ctx.enable_vfs_interface(3) } } {
-            Ok(version) => {
-                info!("[ruffle] Requested VFS interface version >= 3, got {version}");
-                Some(version)
+        self.environ_cb.set({
+            let ctx = GenericContext::from(ctx);
+            let environ_cb = unsafe { ctx.environment_callback() };
+            if let None = environ_cb {
+                panic!("Frontend passed an invalid environment callback");
             }
-            Err(error) => {
-                error!("[ruffle] Failed to initialize VFS interface: {error}");
-                None
+            *environ_cb
+        });
+
+        self.vfs.replace(unsafe {
+            let vfs = environment::get_vfs_interface(
+                self.environ_cb.get(),
+                retro_vfs_interface_info {
+                    required_interface_version: 3,
+                    iface: ptr::null_mut(),
+                },
+            );
+
+            match vfs {
+                Some(vfs) if vfs.iface.is_null() => None,
+                Some(vfs) => Some(*vfs.iface),
+                None => None,
             }
-        };
+        });
     }
 
     fn on_init(&mut self, _ctx: &mut InitContext) {}
@@ -96,7 +118,7 @@ impl Core for Ruffle {
     }
 
     fn on_load_game(&mut self, game: Option<retro_game_info>, ctx: &mut LoadGameContext) -> Result<(), Box<dyn Error>> {
-        let game = game.ok_or_else(|| "No game was provided")?;
+        let game = game.ok_or("No game was provided")?;
         let buffer = unsafe { from_raw_parts(game.data as *const u8, game.size as usize) };
         let movie = SwfMovie::from_data(buffer, None, None)?;
         let dimensions = ViewportDimensions {
@@ -128,15 +150,14 @@ impl Core for Ruffle {
             get_proc_address: None,
         };
 
-        let ctx = GenericContext::from(ctx);
-        let environment_callback = *unsafe { ctx.environment_callback() };
         unsafe {
             // Using ctx.set_hw_render doesn't set the proc address
-            match environment::set_ptr(environment_callback, RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render) {
+            match environment::set_ptr(self.environ_cb.get(), RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render) {
                 Some(true) => {}
                 _ => return Err("Failed to get hw render".into()),
             };
         }
+        debug!("{hw_render:?}");
 
         self.av_info = Some(retro_system_av_info {
             geometry: retro_game_geometry {
@@ -163,8 +184,12 @@ impl Core for Ruffle {
                     |sym| {
                         CString::new(sym)
                             .ok() // Get the symbol name ready for C...
-                            .and_then(|sym| get_proc_address(sym.as_ptr())) // Then get the function address from libretro...
-                            .map(|f| transmute(f)) // Then cast it to the right pointer type...
+                            .and_then(|sym| {
+                                let address = get_proc_address(sym.as_ptr());
+                                trace!("get_proc_address({sym:?}) = {address:?}");
+                                address
+                            }) // Then get the function address from libretro...
+                            .map(|f| f as *const libc::c_void) // Then cast it to the right pointer type...
                             .unwrap_or(ptr::null()) // ...or if all else fails, return a null pointer (gl will handle it)
                     },
                     None,
@@ -174,10 +199,10 @@ impl Core for Ruffle {
         })?;
         let builder = PlayerBuilder::new()
             .with_movie(movie)
-            .with_ui(RetroUiBackend::new(environment_callback))
+            .with_ui(RetroUiBackend::new(self.environ_cb.clone()))
             .with_log(RetroLogBackend::new())
-            .with_audio(RetroAudioBackend::new(2, SAMPLE_RATE as u32))
-            .with_renderer(WgpuRenderBackend::new(Arc::new(descriptors), RetroRenderTarget::new())?)
+            .with_audio(RetroAudioBackend::new(2, self.config.sample_rate))
+            //.with_renderer(WgpuRenderBackend::new(Arc::new(descriptors), RetroRenderTarget::new())?)
             .with_navigator(NullNavigatorBackend::new())
             .with_video(SoftwareVideoBackend::new())
             .with_autoplay(self.config.autoplay)
@@ -189,15 +214,13 @@ impl Core for Ruffle {
             .with_load_behavior(self.config.load_behavior)
             .with_spoofed_url(self.config.spoofed_url.clone());
 
-        let save_directory = unsafe { get_save_directory(environment_callback) };
-        let builder = match (save_directory, self.vfs_interface_version) {
-            (Some(base_path), Some(_)) => {
-                builder.with_storage(RetroVfsStorageBackend::new(base_path, environment_callback)?)
-            }
+        let save_directory = unsafe { get_save_directory(self.environ_cb.get()) };
+        let builder = match save_directory {
+            Some(base_path) => builder.with_storage(RetroVfsStorageBackend::new(base_path, self.vfs.clone())?),
             _ => builder.with_storage(MemoryStorageBackend::new()),
         };
 
-        let player = builder.build();
+        let mut player = builder.build();
         player.lock().unwrap().set_is_playing(true);
         self.player = Some(player);
 
@@ -295,7 +318,7 @@ impl Core for Ruffle {
         (e.g. when changing from fullscreen to windowed mode and vice versa).
         The core should take this into account. It will be notified when reinitialization needs to happen.
          */
-        todo!()
+        // TODO: Initialize the function pointers and rendering backend here
     }
 
     fn on_hw_context_destroyed(&mut self) {
@@ -306,5 +329,3 @@ impl Core for Ruffle {
         todo!()
     }
 }
-
-const SAMPLE_RATE: f64 = 44100.0;

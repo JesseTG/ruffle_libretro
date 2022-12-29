@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::rc::Rc;
 use ruffle_core::{LoadBehavior, Player};
 use rust_libretro::contexts::GenericContext;
@@ -167,9 +168,9 @@ When letterboxed, black bars will be rendered around the exterior margins of the
 )]
 pub struct Ruffle {
     player: Option<Arc<Mutex<Player>>>,
-    vfs_interface_version: Option<u32>,
     av_info: Option<retro_system_av_info>,
-
+    vfs: Arc<Cell<Option<retro_vfs_interface>>>,
+    environ_cb: Arc<Cell<retro_environment_t>>,
     config: Config,
 }
 
@@ -177,8 +178,9 @@ impl Ruffle {
     pub fn new() -> Ruffle {
         Ruffle {
             player: None,
-            vfs_interface_version: None,
             av_info: None,
+            vfs: Arc::new(Cell::new(None)),
+            environ_cb: Arc::new(Cell::new(None)),
             config: Config::new(),
         }
     }
