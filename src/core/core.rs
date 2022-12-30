@@ -69,7 +69,7 @@ impl Core for Ruffle {
         self.environ_cb.set({
             let ctx = GenericContext::from(ctx);
             let environ_cb = unsafe { ctx.environment_callback() };
-            if let None = environ_cb {
+            if environ_cb.is_none() {
                 panic!("Frontend passed an invalid environment callback");
             }
             *environ_cb
