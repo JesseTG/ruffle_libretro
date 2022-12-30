@@ -151,8 +151,16 @@ impl Core for Ruffle {
         self.hw_render = Some(retro_hw_render_callback {
             context_type: preferred_renderer,
             bottom_left_origin: true,
-            version_major: 4,
-            version_minor: 0,
+            version_major: match preferred_renderer {
+                RETRO_HW_CONTEXT_OPENGLES3 => 3,
+                RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
+                RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
+                _ => 0, // Other video contexts don't need a major version number
+            },
+            version_minor: match preferred_renderer {
+                RETRO_HW_CONTEXT_OPENGLES3 => 1,
+                _ => 0, // Other video contexts don't need a minor version number
+            },
             cache_context: true,
             debug_context: true,
 
