@@ -1,30 +1,33 @@
 use std::borrow::Borrow;
-use std::cell::Cell;
 use std::error::Error;
 use std::ffi::CString;
 use std::mem::transmute;
-use std::ops::Deref;
 use std::ptr;
 use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{debug, error, info, trace};
+use futures::executor::block_on;
+use log::{debug, error, trace};
+use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
 use ruffle_core::tag_utils::SwfMovie;
-use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
+use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_video_software::backend::SoftwareVideoBackend;
+use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
 use rust_libretro::environment::get_save_directory;
 use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
-use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
+use rust_libretro_sys::retro_hw_context_type::*;
+use rust_libretro_sys::retro_hw_render_interface_type::*;
 
+use crate::{built_info, util};
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::render::target::RetroRenderTarget;
@@ -32,8 +35,9 @@ use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
 use crate::core::Ruffle;
+use crate::core::state::PlayerState;
+use crate::core::state::PlayerState::{Active, Pending};
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
-use crate::{built_info, util};
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -101,20 +105,22 @@ impl Core for Ruffle {
     }
 
     fn on_run(&mut self, ctx: &mut RunContext, delta_us: Option<i64>) {
-        ctx.poll_input();
-        // TODO: Handle input
-        ctx.get_joypad_state(0, 0);
-        if let Some(player) = self.player.borrow() {
-            let mut player = player.lock().unwrap();
+        if let Active(player) = &self.player {
+            ctx.poll_input();
+            // TODO: Handle input
+            ctx.get_joypad_state(0, 0);
+            if let Active(player) = self.player.borrow() {
+                let mut player = player.lock().unwrap();
 
-            player.run_frame();
+                player.run_frame();
+            }
+
+            let av_info = self.av_info.expect("av_info should've been initialized by now");
+            ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
+
+            // TODO: Write out audio
+            // TODO: React to changed settings
         }
-
-        let av_info = self.av_info.expect("av_info should've been initialized by now");
-        ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
-
-        // TODO: Write out audio
-        // TODO: React to changed settings
     }
 
     fn on_load_game(&mut self, game: Option<retro_game_info>, ctx: &mut LoadGameContext) -> Result<(), Box<dyn Error>> {
@@ -131,8 +137,19 @@ impl Core for Ruffle {
             return Err("RETRO_PIXEL_FORMAT_XRGB8888 not supported by this frontend".into());
         }
 
-        let hw_render = retro_hw_render_callback {
-            context_type: retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL,
+        let preferred_renderer = match { unsafe { environment::get_preferred_hw_render(self.environ_cb.get()) } } {
+            1 => RETRO_HW_CONTEXT_OPENGL,
+            2 => RETRO_HW_CONTEXT_OPENGLES2,
+            3 => RETRO_HW_CONTEXT_OPENGL_CORE,
+            4 => RETRO_HW_CONTEXT_OPENGLES3,
+            5 => RETRO_HW_CONTEXT_OPENGLES_VERSION,
+            6 => RETRO_HW_CONTEXT_VULKAN,
+            7 => RETRO_HW_CONTEXT_DIRECT3D,
+            unknown => Err(format!("Frontend prefers unrecognized hardware context type {unknown}"))?,
+        };
+
+        self.hw_render = Some(retro_hw_render_callback {
+            context_type: preferred_renderer,
             bottom_left_origin: true,
             version_major: 4,
             version_minor: 0,
@@ -148,16 +165,20 @@ impl Core for Ruffle {
             // Set by the frontend
             get_current_framebuffer: None,
             get_proc_address: None,
-        };
+        });
 
         unsafe {
             // Using ctx.set_hw_render doesn't set the proc address
-            match environment::set_ptr(self.environ_cb.get(), RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render) {
+            match environment::set_ptr(
+                self.environ_cb.get(),
+                RETRO_ENVIRONMENT_SET_HW_RENDER,
+                self.hw_render.as_ref().unwrap(),
+            ) {
                 Some(true) => {}
                 _ => return Err("Failed to get hw render".into()),
             };
         }
-        debug!("{hw_render:?}");
+        debug!("{:?}", self.hw_render);
 
         self.av_info = Some(retro_system_av_info {
             geometry: retro_game_geometry {
@@ -173,30 +194,6 @@ impl Core for Ruffle {
             },
         });
 
-        let get_proc_address = hw_render.get_proc_address.unwrap();
-        let descriptors = futures::executor::block_on(match hw_render.context_type {
-            retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL
-            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES2
-            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES3
-            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL_CORE
-            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES_VERSION => unsafe {
-                WgpuRenderBackend::<RetroRenderTarget>::build_descriptors_for_gl(
-                    |sym| {
-                        CString::new(sym)
-                            .ok() // Get the symbol name ready for C...
-                            .and_then(|sym| {
-                                let address = get_proc_address(sym.as_ptr());
-                                trace!("get_proc_address({sym:?}) = {address:?}");
-                                address
-                            }) // Then get the function address from libretro...
-                            .map(|f| f as *const libc::c_void) // Then cast it to the right pointer type...
-                            .unwrap_or(ptr::null()) // ...or if all else fails, return a null pointer (gl will handle it)
-                    },
-                    None,
-                )
-            },
-            _ => Err("Context not available")?,
-        })?;
         let builder = PlayerBuilder::new()
             .with_movie(movie)
             .with_ui(RetroUiBackend::new(self.environ_cb.clone()))
@@ -220,9 +217,10 @@ impl Core for Ruffle {
             _ => builder.with_storage(MemoryStorageBackend::new()),
         };
 
-        let mut player = builder.build();
-        player.lock().unwrap().set_is_playing(true);
-        self.player = Some(player);
+        // Renderer not initialized here, because we can't do so
+        // until the frontend calls on_hw_context_reset
+
+        self.player = Pending(builder.into());
 
         Ok(())
     }
@@ -286,7 +284,7 @@ impl Core for Ruffle {
             _ => defaults::LOAD_BEHAVIOR,
         };
 
-        if let Some(player) = &self.player {
+        if let Active(player) = &self.player {
             let mut player = player.lock().unwrap();
 
             player.set_letterbox(self.config.letterbox); // TODO: What if old letterbox != new letterbox?
@@ -305,20 +303,38 @@ impl Core for Ruffle {
                 key_char: None,
             },
         };
-        self.player.as_mut().unwrap().lock().unwrap().handle_event(event);
+
+        if let Active(player) = &self.player {
+            player.lock().unwrap().handle_event(event);
+        }
         // TODO: Add these events to a queue, then give them all to the emulator in the main loop
     }
 
     fn on_write_audio(&mut self, ctx: &mut AudioContext) {}
 
     fn on_hw_context_reset(&mut self) {
-        /*
-        When the frontend has created a context or reset the context, retro_hw_context_reset_t is called.
-        Here, OpenGL resources can be initialized. The frontend can reset the context at will
-        (e.g. when changing from fullscreen to windowed mode and vice versa).
-        The core should take this into account. It will be notified when reinitialization needs to happen.
-         */
-        // TODO: Initialize the function pointers and rendering backend here
+        match &self.player {
+            Active(player) => {
+                // Game is already running
+                // TODO: Refresh all existing backend resources
+            }
+            Pending(builder) => match self.get_descriptors() {
+                // Game is waiting for hardware context to be ready
+                Ok(descriptors) => {
+                    let descriptors = Arc::new(descriptors);
+                    let target = RetroRenderTarget::new();
+                    let backend = WgpuRenderBackend::new(descriptors, target).unwrap();
+                    let player = builder.take().with_renderer(backend).build();
+                    self.player = Active(player);
+                }
+                Err(error) => {
+                    error!("Failed to initialize descriptors for device: {error}");
+                }
+            },
+            PlayerState::Uninitialized => {
+                // This should not happen
+            }
+        };
     }
 
     fn on_hw_context_destroyed(&mut self) {
@@ -327,5 +343,55 @@ impl Core for Ruffle {
 
     fn on_core_options_update_display(&mut self) -> bool {
         todo!()
+    }
+}
+
+impl Ruffle {
+    fn get_descriptors(&self) -> Result<Descriptors, Box<dyn Error>> {
+        let hw_render = self
+            .hw_render
+            .as_ref()
+            .ok_or("Hardware render callback not initialized")?;
+        let get_proc_address = hw_render.get_proc_address.ok_or("get_proc_address not initialized")?;
+        let descriptors = match hw_render.context_type {
+            retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL
+            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES2
+            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES3
+            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL_CORE
+            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES_VERSION => unsafe {
+                WgpuRenderBackend::<RetroRenderTarget>::build_descriptors_for_gl(
+                    |sym| {
+                        CString::new(sym)
+                            .ok() // Get the symbol name ready for C...
+                            .and_then(|sym| {
+                                let address = get_proc_address(sym.as_ptr());
+                                trace!("get_proc_address({sym:?}) = {address:?}");
+                                address
+                            }) // Then get the function address from libretro...
+                            .map(|f| f as *const libc::c_void) // Then cast it to the right pointer type...
+                            .unwrap_or(ptr::null()) // ...or if all else fails, return a null pointer (gl will handle it)
+                    },
+                    None,
+                )
+            },
+            retro_hw_context_type::RETRO_HW_CONTEXT_VULKAN => unsafe {
+                let interface = environment::get_unchecked::<*mut retro_hw_render_interface>(
+                    self.environ_cb.get(),
+                    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
+                );
+
+                let interface = match interface {
+                    Some((ptr, true)) if (*ptr).interface_type == RETRO_HW_RENDER_INTERFACE_VULKAN => {
+                        *transmute::<*mut retro_hw_render_interface, *mut retro_hw_render_interface_vulkan>(ptr)
+                    }
+                    _ => Err("Failed to get Vulkan context")?,
+                };
+
+                todo!()
+            },
+            _ => Err("Context not available")?,
+        };
+
+        block_on(descriptors)
     }
 }

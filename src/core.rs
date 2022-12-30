@@ -1,14 +1,10 @@
 use std::cell::Cell;
-use std::rc::Rc;
-use ruffle_core::{LoadBehavior, Player};
 use rust_libretro::contexts::GenericContext;
 use rust_libretro::sys::retro_system_av_info;
 use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use ruffle_core::config::Letterbox;
+use std::sync::Arc;
 use crate::core::config::Config;
-use crate::options::{FileAccessPolicy, WebBrowserAccess};
+use crate::core::state::PlayerState;
 
 #[derive(CoreOptions)]
 #[categories(
@@ -167,20 +163,22 @@ When letterboxed, black bars will be rendered around the exterior margins of the
 }
 )]
 pub struct Ruffle {
-    player: Option<Arc<Mutex<Player>>>,
+    player: PlayerState,
     av_info: Option<retro_system_av_info>,
     vfs: Arc<Cell<Option<retro_vfs_interface>>>,
     environ_cb: Arc<Cell<retro_environment_t>>,
+    hw_render: Option<retro_hw_render_callback>,
     config: Config,
 }
 
 impl Ruffle {
     pub fn new() -> Ruffle {
         Ruffle {
-            player: None,
+            player: PlayerState::Uninitialized,
             av_info: None,
             vfs: Arc::new(Cell::new(None)),
             environ_cb: Arc::new(Cell::new(None)),
+            hw_render: None,
             config: Config::new(),
         }
     }
@@ -188,3 +186,4 @@ impl Ruffle {
 
 mod core;
 pub mod config;
+mod state;
