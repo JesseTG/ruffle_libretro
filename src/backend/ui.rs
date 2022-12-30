@@ -4,9 +4,8 @@ use arboard::Clipboard;
 use log::error;
 use ruffle_core::backend::ui::{FullscreenError, MouseCursor, UiBackend};
 use rust_libretro::environment;
-use rust_libretro::sys::{retro_log_level, retro_message_target, retro_message_type};
+use rust_libretro::sys::{retro_log_level, retro_message_target, retro_message_type, retro_environment_t};
 use rust_libretro::types::MessageProgress;
-use rust_libretro_sys::retro_environment_t;
 
 const UNSUPPORTED_CONTENT_MESSAGE: &str = "\
 Ruffle doesn't yet support ActionScript 3, which this content requires.
