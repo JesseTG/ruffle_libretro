@@ -148,7 +148,7 @@ impl Core for Ruffle {
                 RETRO_HW_CONTEXT_OPENGLES3 => 3,
                 RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
                 RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
-                _ => 0, // Other video contexts don't need a major version number
+                _ => 0,                          // Other video contexts don't need a major version number
             },
             version_minor: match preferred_renderer {
                 RETRO_HW_CONTEXT_OPENGLES3 => 1,
