@@ -57,13 +57,6 @@ impl Core for Ruffle {
     fn on_set_environment(&mut self, initial: bool, ctx: &mut SetEnvironmentContext) {
         if initial {
             ctx.set_support_no_game(false);
-            let vfs_interface_version = match { unsafe { ctx.enable_vfs_interface(3) } } {
-                Ok(version) => Some(version),
-                Err(error) => {
-                    error!("Failed to initialize VFS interface: {error}");
-                    None
-                }
-            };
         }
 
         self.environ_cb.set({
