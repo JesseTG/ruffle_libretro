@@ -11,6 +11,7 @@ crate_type = ["cdylib"]
 
 [dependencies]
 arboard = "3.2.0"
+ash = "0.37.1"
 bytemuck = { version = "1.12.3", features = ["derive"] }
 futures = "0.3.25"
 gc-arena = { git = "https://github.com/ruffle-rs/gc-arena" }
@@ -23,9 +24,9 @@ ruffle_render = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-e
 ruffle_video = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-existing-context" }
 ruffle_video_software = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-existing-context" }
 ruffle_render_wgpu = { git = "https://github.com/Dinnerbone/ruffle", branch = "wgpu-existing-context", features = ["clap", "with_hal", "gl", "vulkan", "wgpu-hal", "wgpu-core"] }
-rust-libretro = { git = "https://github.com/JesseTG/rust-libretro", branch = "jtg/all-headers", features = ["log", "unstable-env-commands"] }
-rust-libretro-sys = { git = "https://github.com/JesseTG/rust-libretro", branch = "jtg/all-headers" }
-rust-libretro-proc = { git = "https://github.com/JesseTG/rust-libretro", branch = "jtg/all-headers" }
+rust-libretro = { git = "https://github.com/JesseTG/rust-libretro", branch="jtg/vulkan", features = ["log", "vulkan", "unstable-env-commands"] }
+rust-libretro-sys = { git = "https://github.com/JesseTG/rust-libretro", branch="jtg/vulkan", features = ["vulkan"] }
+rust-libretro-proc = { git = "https://github.com/JesseTG/rust-libretro", branch="jtg/vulkan" }
 thiserror = "1.0.38"
 url = "2.3.1"
 webbrowser = "0.8.2"

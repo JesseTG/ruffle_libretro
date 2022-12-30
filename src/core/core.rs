@@ -1,43 +1,44 @@
 use std::borrow::Borrow;
 use std::error::Error;
 use std::ffi::CString;
-use std::mem::transmute;
-use std::ptr;
+use std::{mem, ptr};
 use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ash::vk;
+use ash::vk::InstanceFnV1_0;
 use futures::executor::block_on;
 use log::{debug, error, trace};
-use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
 use ruffle_core::tag_utils::SwfMovie;
+use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_video_software::backend::SoftwareVideoBackend;
-use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
 use rust_libretro::environment::get_save_directory;
+use rust_libretro::sys::retro_hw_context_type::*;
+use rust_libretro::sys::retro_hw_render_interface_type::*;
 use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
-use rust_libretro_sys::retro_hw_context_type::*;
-use rust_libretro_sys::retro_hw_render_interface_type::*;
+use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 
-use crate::{built_info, util};
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::render::target::RetroRenderTarget;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
-use crate::core::Ruffle;
 use crate::core::state::PlayerState;
 use crate::core::state::PlayerState::{Active, Pending};
+use crate::core::Ruffle;
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
+use crate::{built_info, util};
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -142,12 +143,18 @@ impl Core for Ruffle {
         };
 
         self.hw_render = Some(retro_hw_render_callback {
-            context_type: preferred_renderer,
+            context_type: match preferred_renderer {
+                RETRO_HW_CONTEXT_OPENGL => RETRO_HW_CONTEXT_OPENGLES2,
+                RETRO_HW_CONTEXT_OPENGLES_VERSION | RETRO_HW_CONTEXT_OPENGL_CORE => RETRO_HW_CONTEXT_OPENGLES3,
+                // wgpu supports OpenGL ES, but *not* plain OpenGL.
+                _ => preferred_renderer,
+            },
             bottom_left_origin: true,
             version_major: match preferred_renderer {
                 RETRO_HW_CONTEXT_OPENGLES3 => 3,
                 RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
                 RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
+                RETRO_HW_CONTEXT_VULKAN => vk::make_version(1, 0, 18),
                 _ => 0,                          // Other video contexts don't need a major version number
             },
             version_minor: match preferred_renderer {
@@ -333,7 +340,7 @@ impl Core for Ruffle {
                 }
             },
             PlayerState::Uninitialized => {
-                // This should not happen
+                debug!("Resetting hardware context before core is ready (this is normal)");
             }
         };
     }
@@ -355,12 +362,12 @@ impl Ruffle {
             .ok_or("Hardware render callback not initialized")?;
         let get_proc_address = hw_render.get_proc_address.ok_or("get_proc_address not initialized")?;
         let descriptors = match hw_render.context_type {
-            retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL
-            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES2
-            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES3
-            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGL_CORE
-            | retro_hw_context_type::RETRO_HW_CONTEXT_OPENGLES_VERSION => unsafe {
-                WgpuRenderBackend::<RetroRenderTarget>::build_descriptors_for_gl(
+            RETRO_HW_CONTEXT_OPENGL
+            | RETRO_HW_CONTEXT_OPENGLES2
+            | RETRO_HW_CONTEXT_OPENGLES3
+            | RETRO_HW_CONTEXT_OPENGL_CORE
+            | RETRO_HW_CONTEXT_OPENGLES_VERSION => unsafe {
+                block_on(WgpuRenderBackend::<RetroRenderTarget>::build_descriptors_for_gl(
                     |sym| {
                         CString::new(sym)
                             .ok() // Get the symbol name ready for C...
@@ -373,26 +380,42 @@ impl Ruffle {
                             .unwrap_or(ptr::null()) // ...or if all else fails, return a null pointer (gl will handle it)
                     },
                     None,
-                )
+                ))
             },
-            retro_hw_context_type::RETRO_HW_CONTEXT_VULKAN => unsafe {
-                let interface = environment::get_unchecked::<*mut retro_hw_render_interface>(
+            RETRO_HW_CONTEXT_VULKAN => unsafe {
+                let interface = environment::get_unchecked::<*mut retro_hw_render_interface_vulkan>(
                     self.environ_cb.get(),
                     RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
                 );
 
                 let interface = match interface {
-                    Some((ptr, true)) if (*ptr).interface_type == RETRO_HW_RENDER_INTERFACE_VULKAN => {
-                        *transmute::<*mut retro_hw_render_interface, *mut retro_hw_render_interface_vulkan>(ptr)
-                    }
+                    Some((ptr, true)) if !ptr.is_null() && (*ptr).interface_type == RETRO_HW_RENDER_INTERFACE_VULKAN => &*ptr,
                     _ => Err("Failed to get Vulkan context")?,
                 };
 
-                todo!()
-            },
+                block_on(WgpuRenderBackend::<RetroRenderTarget>::build_descriptors_for_vulkan(
+                    interface.gpu,
+                    ash::Device::load(
+                        &InstanceFnV1_0::load(|sym| {
+                            match (interface.get_instance_proc_addr)(interface.instance, sym.as_ptr()) {
+                                Some(ptr) => mem::transmute(ptr),
+                                None => ptr::null()
+                            }
+                        }),
+                        interface.device
+                    ),
+                    false,
+                    &[],
+                    wgpu::Features::all(),
+                    wgpu_hal::UpdateAfterBindTypes::all(),
+                    0,
+                    interface.queue_index,
+                    None
+                ))
+            }
             _ => Err("Context not available")?,
         };
 
-        block_on(descriptors)
+        descriptors
     }
 }
