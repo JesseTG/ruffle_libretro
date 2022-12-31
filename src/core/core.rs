@@ -155,7 +155,7 @@ impl Core for Ruffle {
                 RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
                 RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
                 RETRO_HW_CONTEXT_VULKAN => vk::make_version(1, 0, 18),
-                _ => 0,                          // Other video contexts don't need a major version number
+                _ => 0, // Other video contexts don't need a major version number
             },
             version_minor: match preferred_renderer {
                 RETRO_HW_CONTEXT_OPENGLES3 => 1,
@@ -182,11 +182,10 @@ impl Core for Ruffle {
                 RETRO_ENVIRONMENT_SET_HW_RENDER,
                 self.hw_render.as_ref().unwrap(),
             ) {
-                Some(true) => {}
-                _ => return Err("Failed to get hw render".into()),
+                Some(true) => debug!("{:?}", self.hw_render),
+                _ => Err("Failed to get hw render")?,
             };
         }
-        debug!("{:?}", self.hw_render);
 
         self.av_info = Some(retro_system_av_info {
             geometry: retro_game_geometry {
