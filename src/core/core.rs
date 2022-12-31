@@ -1,10 +1,10 @@
 use std::borrow::Borrow;
 use std::error::Error;
 use std::ffi::CString;
-use std::{mem, ptr};
 use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{mem, ptr};
 
 use ash::vk;
 use ash::vk::InstanceFnV1_0;
@@ -34,8 +34,8 @@ use crate::backend::log::RetroLogBackend;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
-use crate::core::state::PlayerState;
 use crate::core::state::PlayerState::{Active, Pending};
+use crate::core::state::{PlayerState, RenderInterface};
 use crate::core::Ruffle;
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
 use crate::{built_info, util};
@@ -332,10 +332,7 @@ impl Core for Ruffle {
                     let descriptors = Arc::new(descriptors);
                     let width = av_info.geometry.base_width;
                     let height = av_info.geometry.base_height;
-                    let target = TextureTarget::new(
-                        &descriptors.device,
-                        (width, height),
-                    ).unwrap();
+                    let target = TextureTarget::new(&descriptors.device, (width, height)).unwrap();
                     let backend = WgpuRenderBackend::new(descriptors, target).unwrap();
                     let player = builder.take().with_renderer(backend).build();
                     self.player = Active(player);
@@ -350,8 +347,7 @@ impl Core for Ruffle {
         };
     }
 
-    fn on_hw_context_destroyed(&mut self) {
-    }
+    fn on_hw_context_destroyed(&mut self) {}
 
     fn on_core_options_update_display(&mut self) -> bool {
         todo!()
@@ -389,18 +385,12 @@ impl Ruffle {
                 block_on(descriptors)
             },
             RETRO_HW_CONTEXT_VULKAN => unsafe {
-                let interface = environment::get_unchecked::<*mut retro_hw_render_interface_vulkan>(
-                    self.environ_cb.get(),
-                    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
-                );
-
-                let interface = match interface {
-                    Some((ptr, true))
-                        if !ptr.is_null() && (*ptr).interface_type == RETRO_HW_RENDER_INTERFACE_VULKAN =>
-                    {
-                        &*ptr
-                    }
-                    _ => Err("Failed to get Vulkan context")?,
+                let interface = match self
+                    .get_hw_render_interface(RETRO_HW_CONTEXT_VULKAN)?
+                    .ok_or("Not found")?
+                {
+                    RenderInterface::Vulkan(interface) => interface,
+                    _ => Err("Not found")?,
                 };
 
                 let descriptors = WgpuRenderBackend::<TextureTarget>::build_descriptors_for_vulkan(
