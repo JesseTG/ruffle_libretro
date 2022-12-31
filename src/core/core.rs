@@ -30,7 +30,6 @@ use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_c
 
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
-use crate::backend::render::target::RetroRenderTarget;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
@@ -329,8 +328,14 @@ impl Core for Ruffle {
             Pending(builder) => match self.get_descriptors() {
                 // Game is waiting for hardware context to be ready
                 Ok(descriptors) => {
+                    let av_info = self.av_info.unwrap();
                     let descriptors = Arc::new(descriptors);
-                    let target = RetroRenderTarget::new();
+                    let width = av_info.geometry.base_width;
+                    let height = av_info.geometry.base_height;
+                    let target = TextureTarget::new(
+                        &descriptors.device,
+                        (width, height),
+                    ).unwrap();
                     let backend = WgpuRenderBackend::new(descriptors, target).unwrap();
                     let player = builder.take().with_renderer(backend).build();
                     self.player = Active(player);
@@ -346,7 +351,6 @@ impl Core for Ruffle {
     }
 
     fn on_hw_context_destroyed(&mut self) {
-        todo!()
     }
 
     fn on_core_options_update_display(&mut self) -> bool {
@@ -367,7 +371,7 @@ impl Ruffle {
             | RETRO_HW_CONTEXT_OPENGLES3
             | RETRO_HW_CONTEXT_OPENGL_CORE
             | RETRO_HW_CONTEXT_OPENGLES_VERSION => unsafe {
-                block_on(WgpuRenderBackend::<RetroRenderTarget>::build_descriptors_for_gl(
+                let descriptors = WgpuRenderBackend::<TextureTarget>::build_descriptors_for_gl(
                     |sym| {
                         CString::new(sym)
                             .ok() // Get the symbol name ready for C...
@@ -380,7 +384,9 @@ impl Ruffle {
                             .unwrap_or(ptr::null()) // ...or if all else fails, return a null pointer (gl will handle it)
                     },
                     None,
-                ))
+                );
+
+                block_on(descriptors)
             },
             RETRO_HW_CONTEXT_VULKAN => unsafe {
                 let interface = environment::get_unchecked::<*mut retro_hw_render_interface_vulkan>(
@@ -389,20 +395,24 @@ impl Ruffle {
                 );
 
                 let interface = match interface {
-                    Some((ptr, true)) if !ptr.is_null() && (*ptr).interface_type == RETRO_HW_RENDER_INTERFACE_VULKAN => &*ptr,
+                    Some((ptr, true))
+                        if !ptr.is_null() && (*ptr).interface_type == RETRO_HW_RENDER_INTERFACE_VULKAN =>
+                    {
+                        &*ptr
+                    }
                     _ => Err("Failed to get Vulkan context")?,
                 };
 
-                block_on(WgpuRenderBackend::<RetroRenderTarget>::build_descriptors_for_vulkan(
+                let descriptors = WgpuRenderBackend::<TextureTarget>::build_descriptors_for_vulkan(
                     interface.gpu,
                     ash::Device::load(
                         &InstanceFnV1_0::load(|sym| {
                             match (interface.get_instance_proc_addr)(interface.instance, sym.as_ptr()) {
                                 Some(ptr) => mem::transmute(ptr),
-                                None => ptr::null()
+                                None => ptr::null(),
                             }
                         }),
-                        interface.device
+                        interface.device,
                     ),
                     false,
                     &[],
@@ -410,9 +420,11 @@ impl Ruffle {
                     wgpu_hal::UpdateAfterBindTypes::all(),
                     0,
                     interface.queue_index,
-                    None
-                ))
-            }
+                    None,
+                );
+
+                block_on(descriptors)
+            },
             _ => Err("Context not available")?,
         };
 
