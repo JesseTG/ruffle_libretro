@@ -7,9 +7,7 @@ use std::time::Duration;
 use std::{mem, ptr};
 
 use ash::vk;
-use ash::vk::InstanceFnV1_0;
-use futures::executor::block_on;
-use log::{debug, error, trace};
+use log::{debug, error};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
@@ -17,11 +15,10 @@ use ruffle_core::tag_utils::SwfMovie;
 use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
-use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_render_wgpu::target::TextureTarget;
 use ruffle_video_software::backend::SoftwareVideoBackend;
 use rust_libretro::contexts::*;
-use rust_libretro::core::Core;
+use rust_libretro::core::{Core, CoreOptions};
 use rust_libretro::environment::get_save_directory;
 use rust_libretro::sys::retro_hw_context_type::*;
 use rust_libretro::sys::retro_hw_render_interface_type::*;
@@ -35,7 +32,7 @@ use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
 use crate::core::state::PlayerState::{Active, Pending};
-use crate::core::state::{PlayerState, RenderInterface};
+use crate::core::state::PlayerState;
 use crate::core::Ruffle;
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
 use crate::{built_info, util};
@@ -351,73 +348,5 @@ impl Core for Ruffle {
 
     fn on_core_options_update_display(&mut self) -> bool {
         todo!()
-    }
-}
-
-impl Ruffle {
-    fn get_descriptors(&self) -> Result<Descriptors, Box<dyn Error>> {
-        let hw_render = self
-            .hw_render_callback
-            .as_ref()
-            .ok_or("Hardware render callback not initialized")?;
-        let get_proc_address = hw_render.get_proc_address.ok_or("get_proc_address not initialized")?;
-        let descriptors = match hw_render.context_type {
-            RETRO_HW_CONTEXT_OPENGL
-            | RETRO_HW_CONTEXT_OPENGLES2
-            | RETRO_HW_CONTEXT_OPENGLES3
-            | RETRO_HW_CONTEXT_OPENGL_CORE
-            | RETRO_HW_CONTEXT_OPENGLES_VERSION => unsafe {
-                let descriptors = WgpuRenderBackend::<TextureTarget>::build_descriptors_for_gl(
-                    |sym| {
-                        CString::new(sym)
-                            .ok() // Get the symbol name ready for C...
-                            .and_then(|sym| {
-                                let address = get_proc_address(sym.as_ptr());
-                                trace!("get_proc_address({sym:?}) = {address:?}");
-                                address
-                            }) // Then get the function address from libretro...
-                            .map(|f| f as *const libc::c_void) // Then cast it to the right pointer type...
-                            .unwrap_or(ptr::null()) // ...or if all else fails, return a null pointer (gl will handle it)
-                    },
-                    None,
-                );
-
-                block_on(descriptors)
-            },
-            RETRO_HW_CONTEXT_VULKAN => unsafe {
-                let interface = match self
-                    .get_hw_render_interface(RETRO_HW_CONTEXT_VULKAN)?
-                    .ok_or("Not found")?
-                {
-                    RenderInterface::Vulkan(interface) => interface,
-                    _ => Err("Not found")?,
-                };
-
-                let descriptors = WgpuRenderBackend::<TextureTarget>::build_descriptors_for_vulkan(
-                    interface.gpu,
-                    ash::Device::load(
-                        &InstanceFnV1_0::load(|sym| {
-                            match (interface.get_instance_proc_addr)(interface.instance, sym.as_ptr()) {
-                                Some(ptr) => mem::transmute(ptr),
-                                None => ptr::null(),
-                            }
-                        }),
-                        interface.device,
-                    ),
-                    false,
-                    &[],
-                    wgpu::Features::all(),
-                    wgpu_hal::UpdateAfterBindTypes::all(),
-                    0,
-                    interface.queue_index,
-                    None,
-                );
-
-                block_on(descriptors)
-            },
-            _ => Err("Context not available")?,
-        };
-
-        descriptors
     }
 }
