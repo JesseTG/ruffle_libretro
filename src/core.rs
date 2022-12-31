@@ -167,7 +167,7 @@ pub struct Ruffle {
     av_info: Option<retro_system_av_info>,
     vfs: Arc<Cell<Option<retro_vfs_interface>>>,
     environ_cb: Arc<Cell<retro_environment_t>>,
-    hw_render: Option<retro_hw_render_callback>,
+    hw_render_callback: Option<retro_hw_render_callback>,
     config: Config,
 }
 
@@ -178,7 +178,7 @@ impl Ruffle {
             av_info: None,
             vfs: Arc::new(Cell::new(None)),
             environ_cb: Arc::new(Cell::new(None)),
-            hw_render: None,
+            hw_render_callback: None,
             config: Config::new(),
         }
     }

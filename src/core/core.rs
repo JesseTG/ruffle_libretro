@@ -142,7 +142,7 @@ impl Core for Ruffle {
             unknown => Err(format!("Frontend prefers unrecognized hardware context type {unknown}"))?,
         };
 
-        self.hw_render = Some(retro_hw_render_callback {
+        self.hw_render_callback = Some(retro_hw_render_callback {
             context_type: match preferred_renderer {
                 RETRO_HW_CONTEXT_OPENGL => RETRO_HW_CONTEXT_OPENGLES2,
                 RETRO_HW_CONTEXT_OPENGLES_VERSION | RETRO_HW_CONTEXT_OPENGL_CORE => RETRO_HW_CONTEXT_OPENGLES3,
@@ -180,9 +180,9 @@ impl Core for Ruffle {
             match environment::set_ptr(
                 self.environ_cb.get(),
                 RETRO_ENVIRONMENT_SET_HW_RENDER,
-                self.hw_render.as_ref().unwrap(),
+                self.hw_render_callback.as_ref().unwrap(),
             ) {
-                Some(true) => debug!("{:?}", self.hw_render),
+                Some(true) => debug!("{:?}", self.hw_render_callback),
                 _ => Err("Failed to get hw render")?,
             };
         }
@@ -361,7 +361,7 @@ impl Core for Ruffle {
 impl Ruffle {
     fn get_descriptors(&self) -> Result<Descriptors, Box<dyn Error>> {
         let hw_render = self
-            .hw_render
+            .hw_render_callback
             .as_ref()
             .ok_or("Hardware render callback not initialized")?;
         let get_proc_address = hw_render.get_proc_address.ok_or("get_proc_address not initialized")?;
