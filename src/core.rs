@@ -4,7 +4,7 @@ use rust_libretro::sys::retro_system_av_info;
 use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
 use std::sync::Arc;
 use crate::core::config::Config;
-use crate::core::state::PlayerState;
+use crate::core::state::{PlayerState, RenderInterface};
 
 #[derive(CoreOptions)]
 #[categories(
@@ -168,6 +168,7 @@ pub struct Ruffle {
     vfs: Arc<Cell<Option<retro_vfs_interface>>>,
     environ_cb: Arc<Cell<retro_environment_t>>,
     hw_render_callback: Option<retro_hw_render_callback>,
+    hw_render_interface: Option<RenderInterface>,
     config: Config,
 }
 
@@ -179,6 +180,7 @@ impl Ruffle {
             vfs: Arc::new(Cell::new(None)),
             environ_cb: Arc::new(Cell::new(None)),
             hw_render_callback: None,
+            hw_render_interface: None,
             config: Config::new(),
         }
     }

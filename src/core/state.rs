@@ -11,7 +11,7 @@ pub enum PlayerState {
 }
 
 pub enum RenderInterface {
-    Default(retro_hw_render_interface),
+    Default,
     Vulkan(retro_hw_render_interface_vulkan),
 }
 

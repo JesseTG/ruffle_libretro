@@ -32,7 +32,7 @@ use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
 use crate::core::state::PlayerState::{Active, Pending};
-use crate::core::state::PlayerState;
+use crate::core::state::{PlayerState, RenderInterface};
 use crate::core::Ruffle;
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
 use crate::{built_info, util};
@@ -322,22 +322,34 @@ impl Core for Ruffle {
                 // Game is already running
                 // TODO: Refresh all existing backend resources
             }
-            Pending(builder) => match self.get_descriptors() {
+            Pending(builder) => {
                 // Game is waiting for hardware context to be ready
-                Ok(descriptors) => {
-                    let av_info = self.av_info.unwrap();
-                    let descriptors = Arc::new(descriptors);
-                    let width = av_info.geometry.base_width;
-                    let height = av_info.geometry.base_height;
-                    let target = TextureTarget::new(&descriptors.device, (width, height)).unwrap();
-                    let backend = WgpuRenderBackend::new(descriptors, target).unwrap();
-                    let player = builder.take().with_renderer(backend).build();
-                    self.player = Active(player);
+
+                if let (Some(hw_render_callback), Some(av_info)) = (self.hw_render_callback, self.av_info) {
+                    // If the hardware render callback and game AV info were both initialized...
+                    match self.get_render_backend(&hw_render_callback, &av_info) {
+                        Ok((backend, interface)) => {
+                            let player = builder.take().with_renderer(backend).build();
+                            // We take ownership of the builder, then throw it out after the player is built
+                            self.hw_render_interface = Some(interface);
+                            self.player = Active(player);
+                        }
+                        Err(error) => {
+                            error!("Failed to initialize render backend: {error}");
+                        }
+                    };
+
+                } else {
+                    error!("Failed to initialize render backend: retro_hw_render_callback and retro_system_av_info must both be set");
                 }
-                Err(error) => {
-                    error!("Failed to initialize descriptors for device: {error}");
-                }
-            },
+                // Ok(descriptors) => {
+                //
+
+                // }
+                // Err(error) => {
+                //     error!("Failed to initialize descriptors for device: {error}");
+                // }
+            }
             PlayerState::Uninitialized => {
                 debug!("Resetting hardware context before core is ready (this is normal)");
             }
