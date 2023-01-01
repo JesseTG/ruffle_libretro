@@ -1,10 +1,13 @@
 use std::cell::Cell;
+use std::sync::Arc;
+
+use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
 use rust_libretro::contexts::GenericContext;
 use rust_libretro::sys::retro_system_av_info;
-use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
-use std::sync::Arc;
+
 use crate::core::config::Config;
-use crate::core::state::{PlayerState, RenderInterface};
+use crate::core::render::RenderInterface;
+use crate::core::state::PlayerState;
 
 #[derive(CoreOptions)]
 #[categories(

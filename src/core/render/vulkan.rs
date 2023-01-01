@@ -17,8 +17,8 @@ impl Ruffle {
         interface: &RenderInterface,
     ) -> Result<Descriptors, Box<dyn Error>> {
         let interface = match interface {
-            Default => Err(WrongRenderInterface)?,
             RenderInterface::Vulkan(vulkan) => vulkan,
+            _ => Err(WrongRenderInterface)?,
         };
 
         let static_fn = StaticFn {
@@ -42,8 +42,8 @@ impl Ruffle {
             extensions.as_slice(),
             wgpu::Features::all_native_mask(), // TODO: Populate this properly
             wgpu_hal::UpdateAfterBindTypes::all(),
+            interface.queue_index, // I think this field is misnamed
             0,
-            interface.queue_index,
             None,
         );
 

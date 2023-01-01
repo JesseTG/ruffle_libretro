@@ -3,7 +3,6 @@ use std::ffi::CString;
 use std::ptr;
 use std::sync::Arc;
 
-use ash::vk;
 use futures::executor::block_on;
 use log::trace;
 use ruffle_core::Player;
@@ -14,7 +13,7 @@ use rust_libretro::environment;
 use rust_libretro_sys::{
     RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE, retro_hw_context_type, retro_hw_context_type::*, retro_hw_get_proc_address_t,
     retro_hw_render_callback, retro_hw_render_context_negotiation_interface_vulkan, retro_hw_render_interface_vulkan,
-    retro_system_av_info, retro_vulkan_image,
+    retro_system_av_info,
 };
 use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
 use thiserror::Error as ThisError;
@@ -23,8 +22,6 @@ use wgpu::Features;
 use crate::core::render::RenderInterface::{Default, Vulkan};
 use crate::core::render::RenderInterfaceError::*;
 use crate::core::Ruffle;
-use crate::core::state::RenderInterface;
-use crate::core::state::RenderInterface::{Default, Vulkan};
 
 mod vulkan;
 
@@ -63,6 +60,31 @@ pub enum RenderContextNegotiationInterface {
 }
 
 impl Ruffle {
+    pub(crate) fn render(&self, player: &mut Player) -> Result<(), Box<dyn Error>> {
+        if let Some(Vulkan(vulkan)) = self.hw_render_interface {
+            //(vulkan.wait_sync_index.unwrap())(vulkan.handle);
+
+            //let sync_index = (vulkan.get_sync_index.ok_or("get_sync_index not available")?)(vulkan.handle);
+
+            // let image = retro_vulkan_image {
+            //     image_view: core::default::Default::default(),
+            //     image_layout: Default::default(),
+            //     create_info: Default::default(),
+            // };
+            // (vulkan.set_image.ok_or("set_image not available")?)(
+            //     vulkan.handle,
+            //     &image,
+            //     0,
+            //     ptr::null(),
+            //     vk::QUEUE_FAMILY_IGNORED,
+            // );
+            //
+            // (vulkan.set_command_buffers.ok_or("set_command_buffers not here")?)(vulkan.handle, 1)
+        };
+        player.render();
+        Ok(())
+    }
+
     pub(crate) fn get_render_backend(
         &self,
         hw_render_callback: &retro_hw_render_callback,
@@ -133,7 +155,7 @@ impl Ruffle {
 
                 let interface = match interface {
                     Some((ptr, true))
-                        if !ptr.is_null() && (&*ptr).interface_type == RETRO_HW_RENDER_INTERFACE_VULKAN =>
+                        if !ptr.is_null() && (*ptr).interface_type == RETRO_HW_RENDER_INTERFACE_VULKAN =>
                     {
                         &*ptr
                     }

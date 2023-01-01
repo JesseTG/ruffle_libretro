@@ -1,41 +1,39 @@
+use std::ptr;
 use std::borrow::Borrow;
 use std::error::Error;
 use std::ffi::CString;
+use std::ops::DerefMut;
 use std::slice::from_raw_parts;
-use std::sync::Arc;
 use std::time::Duration;
-use std::{mem, ptr};
 
 use ash::vk;
-use log::{debug, error};
+use log::{debug, error, info, log, warn};
+use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
 use ruffle_core::tag_utils::SwfMovie;
-use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
-use ruffle_render_wgpu::backend::WgpuRenderBackend;
-use ruffle_render_wgpu::target::TextureTarget;
 use ruffle_video_software::backend::SoftwareVideoBackend;
+use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 use rust_libretro::contexts::*;
-use rust_libretro::core::{Core, CoreOptions};
+use rust_libretro::core::Core;
 use rust_libretro::environment::get_save_directory;
+use rust_libretro::sys::*;
 use rust_libretro::sys::retro_hw_context_type::*;
 use rust_libretro::sys::retro_hw_render_interface_type::*;
-use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
-use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 
+use crate::{built_info, util};
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
-use crate::core::state::PlayerState::{Active, Pending};
-use crate::core::state::{PlayerState, RenderInterface};
 use crate::core::Ruffle;
+use crate::core::state::PlayerState;
+use crate::core::state::PlayerState::{Active, Pending};
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
-use crate::{built_info, util};
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -65,6 +63,17 @@ impl Core for Ruffle {
             }
             *environ_cb
         });
+        /*
+        if initial {
+            let exclusions = vec![String::from("naga::front")];
+            let logger = match { unsafe { environment::get_log_callback(self.environ_cb.get()) } } {
+                Ok(log_cb) => logger::RetroLogger::new(log_cb.unwrap(), exclusions),
+                Err(_) => logger::RetroLogger::new(retro_log_callback { log: None }, exclusions),
+            };
+
+            log::set_max_level(LevelFilter::Trace);
+            log::set_boxed_logger(Box::new(logger)).expect("could not set logger");
+        }*/
 
         self.vfs.replace(unsafe {
             let vfs = environment::get_vfs_interface(
@@ -100,18 +109,19 @@ impl Core for Ruffle {
             ctx.poll_input();
             // TODO: Handle input
             ctx.get_joypad_state(0, 0);
-            if let Active(player) = self.player.borrow() {
-                let mut player = player.lock().unwrap();
+            let mut player = player.lock().unwrap();
 
-                player.run_frame();
+            player.run_frame();
+            if let Err(error) = self.render(player.deref_mut()) {
+                error!("Error when rendering: {error}");
             }
-
-            let av_info = self.av_info.expect("av_info should've been initialized by now");
-            ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
 
             // TODO: Write out audio
             // TODO: React to changed settings
         }
+
+        let av_info = self.av_info.expect("av_info should've been initialized by now");
+        ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
     }
 
     fn on_load_game(&mut self, game: Option<retro_game_info>, ctx: &mut LoadGameContext) -> Result<(), Box<dyn Error>> {
@@ -203,7 +213,6 @@ impl Core for Ruffle {
             .with_ui(RetroUiBackend::new(self.environ_cb.clone()))
             .with_log(RetroLogBackend::new())
             .with_audio(RetroAudioBackend::new(2, self.config.sample_rate))
-            //.with_renderer(WgpuRenderBackend::new(Arc::new(descriptors), RetroRenderTarget::new())?)
             .with_navigator(NullNavigatorBackend::new())
             .with_video(SoftwareVideoBackend::new())
             .with_autoplay(self.config.autoplay)
@@ -317,14 +326,28 @@ impl Core for Ruffle {
     fn on_write_audio(&mut self, ctx: &mut AudioContext) {}
 
     fn on_hw_context_reset(&mut self) {
+        info!("on_hw_context_reset");
         match &self.player {
             Active(player) => {
                 // Game is already running
                 // TODO: Refresh all existing backend resources
+                if let Some(hw_render_callback) = self.hw_render_callback {
+                    self.hw_render_interface = match self.get_hw_render_interface(hw_render_callback.context_type) {
+                        Ok(interface) => {
+                            info!("Updated hardware render interface in active player to {interface:?}");
+                            Some(interface)
+                        }
+                        Err(error) => {
+                            error!("Failed to update hardware render interface in active player: {error}");
+                            None
+                        }
+                    };
+                } else {
+                    warn!("Reset hardware context before hw_render_callback was ready");
+                }
             }
             Pending(builder) => {
                 // Game is waiting for hardware context to be ready
-
                 if let (Some(hw_render_callback), Some(av_info)) = (self.hw_render_callback, self.av_info) {
                     // If the hardware render callback and game AV info were both initialized...
                     match self.get_render_backend(&hw_render_callback, &av_info) {
@@ -333,22 +356,15 @@ impl Core for Ruffle {
                             // We take ownership of the builder, then throw it out after the player is built
                             self.hw_render_interface = Some(interface);
                             self.player = Active(player);
+                            info!("Initialized player");
                         }
                         Err(error) => {
                             error!("Failed to initialize render backend: {error}");
                         }
                     };
-
                 } else {
                     error!("Failed to initialize render backend: retro_hw_render_callback and retro_system_av_info must both be set");
                 }
-                // Ok(descriptors) => {
-                //
-
-                // }
-                // Err(error) => {
-                //     error!("Failed to initialize descriptors for device: {error}");
-                // }
             }
             PlayerState::Uninitialized => {
                 debug!("Resetting hardware context before core is ready (this is normal)");
