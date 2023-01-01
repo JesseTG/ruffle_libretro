@@ -11,14 +11,7 @@ use ruffle_render_wgpu::target::TextureTarget;
 use rust_libretro::environment;
 use rust_libretro::environment::get_hw_render_interface;
 use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
-use rust_libretro_sys::{
-    retro_hw_context_type, retro_hw_context_type::*, retro_hw_get_proc_address_t, retro_hw_render_callback,
-    retro_hw_render_interface_vulkan, retro_system_av_info, RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
-};
-use std::error::Error;
-use std::ffi::CString;
-use std::sync::Arc;
-use std::{mem, ptr};
+use rust_libretro_sys::{retro_hw_context_type, retro_hw_context_type::*, retro_hw_get_proc_address_t, retro_hw_render_callback, retro_hw_render_interface_vulkan, retro_system_av_info, retro_vulkan_image, RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE, retro_hw_render_context_negotiation_interface_vulkan};
 use thiserror::Error as ThisError;
 
 #[derive(ThisError, Debug)]
@@ -43,6 +36,16 @@ pub enum RenderInterfaceError {
 
     #[error("Incorrect render interface")]
     WrongRenderInterface,
+}
+
+#[derive(Debug)]
+pub enum RenderInterface {
+    Default,
+    Vulkan(retro_hw_render_interface_vulkan),
+}
+
+pub enum RenderContextNegotiationInterface {
+    Vulkan(retro_hw_render_context_negotiation_interface_vulkan)
 }
 
 impl Ruffle {
