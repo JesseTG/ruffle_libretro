@@ -1,18 +1,32 @@
-use crate::core::render::RenderInterfaceError::*;
-use crate::core::state::RenderInterface;
-use crate::core::state::RenderInterface::Default;
-use crate::core::Ruffle;
-use ash::vk::InstanceFnV1_0;
+use std::error::Error;
+use std::ffi::CString;
+use std::ptr;
+use std::sync::Arc;
+
+use ash::vk;
 use futures::executor::block_on;
 use log::trace;
+use ruffle_core::Player;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_render_wgpu::target::TextureTarget;
 use rust_libretro::environment;
-use rust_libretro::environment::get_hw_render_interface;
+use rust_libretro_sys::{
+    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE, retro_hw_context_type, retro_hw_context_type::*, retro_hw_get_proc_address_t,
+    retro_hw_render_callback, retro_hw_render_context_negotiation_interface_vulkan, retro_hw_render_interface_vulkan,
+    retro_system_av_info, retro_vulkan_image,
+};
 use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
-use rust_libretro_sys::{retro_hw_context_type, retro_hw_context_type::*, retro_hw_get_proc_address_t, retro_hw_render_callback, retro_hw_render_interface_vulkan, retro_system_av_info, retro_vulkan_image, RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE, retro_hw_render_context_negotiation_interface_vulkan};
 use thiserror::Error as ThisError;
+use wgpu::Features;
+
+use crate::core::render::RenderInterface::{Default, Vulkan};
+use crate::core::render::RenderInterfaceError::*;
+use crate::core::Ruffle;
+use crate::core::state::RenderInterface;
+use crate::core::state::RenderInterface::{Default, Vulkan};
+
+mod vulkan;
 
 #[derive(ThisError, Debug)]
 pub enum RenderInterfaceError {
@@ -45,7 +59,7 @@ pub enum RenderInterface {
 }
 
 pub enum RenderContextNegotiationInterface {
-    Vulkan(retro_hw_render_context_negotiation_interface_vulkan)
+    Vulkan(retro_hw_render_context_negotiation_interface_vulkan),
 }
 
 impl Ruffle {
@@ -106,35 +120,7 @@ impl Ruffle {
         block_on(descriptors)
     }
 
-    unsafe fn get_vulkan_descriptors(&self, interface: &RenderInterface) -> Result<Descriptors, Box<dyn Error>> {
-        let interface = match interface {
-            Default => Err(WrongRenderInterface)?,
-            RenderInterface::Vulkan(vulkan) => vulkan,
-        };
-        let descriptors = WgpuRenderBackend::<TextureTarget>::build_descriptors_for_vulkan(
-            interface.gpu,
-            ash::Device::load(
-                &InstanceFnV1_0::load(|sym| {
-                    match (interface.get_instance_proc_addr)(interface.instance, sym.as_ptr()) {
-                        Some(ptr) => mem::transmute(ptr),
-                        None => ptr::null(),
-                    }
-                }),
-                interface.device,
-            ),
-            false,
-            &[],
-            wgpu::Features::all(),
-            wgpu_hal::UpdateAfterBindTypes::all(),
-            0,
-            interface.queue_index,
-            None,
-        );
-
-        block_on(descriptors)
-    }
-
-    fn get_hw_render_interface(
+    pub(crate) fn get_hw_render_interface(
         &self,
         context_type: retro_hw_context_type,
     ) -> Result<RenderInterface, RenderInterfaceError> {
