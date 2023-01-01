@@ -61,7 +61,43 @@ pub enum RenderContextNegotiationInterface {
 
 impl Ruffle {
     pub(crate) fn render(&self, player: &mut Player) -> Result<(), Box<dyn Error>> {
+        player.render();
         if let Some(Vulkan(vulkan)) = self.hw_render_interface {
+            let renderer = player
+                .renderer()
+                .downcast_ref::<WgpuRenderBackend<TextureTarget>>()
+                .ok_or("Expected a WgpuRenderBackend")?;
+
+            let image = unsafe {
+                let mut texture: Option<Image> = None;
+                &renderer.target().texture.as_hal::<VulkanApi, _>(|t| {
+                    texture = t.map(|t| t.raw_handle());
+                });
+                texture.ok_or("Texture must exist in Vulkan HAL")?
+            };
+
+            unsafe {
+                let instance = ash::Instance::load(&static_fn, interface.instance);
+                let device = ash::Device::load(instance.fp_v1_0(), interface.device);
+
+                let create_info = ImageViewCreateInfo::builder()
+                    .image(image)
+                    .build();
+
+                let image_view = device.create_image_view(&create_info, None)?;
+
+                let vulkan_image = retro_vulkan_image {
+                    image_view,
+                    image_layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    create_info,
+                };
+
+                (vulkan.set_image.unwrap())(vulkan.handle, &vulkan_image, 0, ptr::null(), 0);
+            }
+
+
+
+
             //(vulkan.wait_sync_index.unwrap())(vulkan.handle);
 
             //let sync_index = (vulkan.get_sync_index.ok_or("get_sync_index not available")?)(vulkan.handle);
@@ -81,7 +117,6 @@ impl Ruffle {
             //
             // (vulkan.set_command_buffers.ok_or("set_command_buffers not here")?)(vulkan.handle, 1)
         };
-        player.render();
         Ok(())
     }
 
