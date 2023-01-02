@@ -109,16 +109,17 @@ impl Core for Ruffle {
             // TODO: Handle input
             ctx.get_joypad_state(0, 0);
             let mut player = player.lock().unwrap();
+            let player = player.deref_mut();
 
             player.run_frame();
 
-            if let Err(error) = self
+
+            if let Err(error) = &self
                 .render_state
-                .as_ref()
-                .ok_or(NoRenderState)
-                .unwrap()
-                .render(player.deref_mut())
-            {
+                .as_mut()
+                .ok_or(NoRenderState.into())
+                .and_then(|mut f| f.render(player))
+            { // If the render state is valid AND the screen was rendered properly...
                 error!("Error when rendering: {error}");
             }
 

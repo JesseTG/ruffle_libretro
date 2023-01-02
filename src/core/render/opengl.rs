@@ -29,7 +29,6 @@ pub(crate) struct OpenGlRenderState {
     descriptors: Arc<Descriptors>,
 }
 
-
 impl OpenGlRenderState {
     pub fn new(get_proc_address: retro_hw_get_proc_address_t) -> Result<Self, OpenGlRenderStateError> {
         let get_proc_address = get_proc_address.ok_or(GetProcAddressNotInitialized)?;
@@ -61,12 +60,16 @@ impl RenderState for OpenGlRenderState {
         self.descriptors.clone()
     }
 
-    fn render(&self, player: &mut Player) -> Result<(), Box<dyn Error>> {
+    fn render(&mut self, player: &mut Player) -> Result<(), Box<dyn Error>> {
         player.render();
         Ok(())
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn Error>> {
         todo!()
+    }
+
+    fn set_target(&mut self, target: &TextureTarget) -> Result<(), Box<dyn Error>> {
+        Ok(())
     }
 }

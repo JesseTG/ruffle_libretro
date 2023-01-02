@@ -1,11 +1,13 @@
 use std::error::Error;
-use std::ffi::CStr;
+use std::ffi::{c_void, CStr};
+use std::mem::transmute;
 use std::ptr;
 use std::sync::Arc;
 
 use ash::vk::{Image, ImageLayout, ImageViewCreateInfo, StaticFn};
 use ash::{Device, Instance};
 use futures::executor::block_on;
+use log::debug;
 use ruffle_core::Player;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
@@ -49,6 +51,10 @@ pub(crate) struct VulkanRenderState {
     instance: Instance,
     device: Device,
     descriptors: Arc<Descriptors>,
+
+    // Had to make this an option to break a dependency loop.
+    // Originally this struct needed a target, which needed descriptors, which needed this struct...
+    image: Option<retro_vulkan_image>,
 }
 
 impl VulkanRenderState {
@@ -68,9 +74,10 @@ impl VulkanRenderState {
             _ => Err(FailedToGetRenderInterface)?,
         };
 
-        let static_fn = StaticFn {
-            get_instance_proc_addr: interface.get_instance_proc_addr,
-        };
+        let static_fn = StaticFn::load(|sym| {
+            let fun = (interface.get_instance_proc_addr)(interface.instance, sym.as_ptr());
+            fun.unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null())) as *const c_void
+        });
         let instance = Instance::load(&static_fn, interface.instance);
         let device = Device::load(instance.fp_v1_0(), interface.device);
         let extensions: Vec<&CStr> = match instance.enumerate_device_extension_properties(interface.gpu) {
@@ -81,7 +88,7 @@ impl VulkanRenderState {
             Err(error) => Err(VulkanError("vkEnumerateDeviceExtensionProperties", error))?,
         };
 
-        let descriptors = block_on(WgpuRenderBackend::<TextureTarget>::build_descriptors_for_vulkan(
+        let descriptors = WgpuRenderBackend::<TextureTarget>::build_descriptors_for_vulkan(
             interface.gpu,
             device.clone(),
             false,
@@ -91,13 +98,19 @@ impl VulkanRenderState {
             interface.queue_index, // I think this field is misnamed
             0,
             None,
-        ))?;
+        );
+
+        let descriptors = match block_on(descriptors) {
+            Ok(descriptors) => Arc::new(descriptors),
+            Err(error) => Err(error)?,
+        };
 
         Ok(Self {
             interface: *interface,
             instance,
             device,
-            descriptors: Arc::new(descriptors),
+            descriptors,
+            image: None,
         })
     }
 }
@@ -107,39 +120,53 @@ impl RenderState for VulkanRenderState {
         self.descriptors.clone()
     }
 
-    fn render(&self, player: &mut Player) -> Result<(), Box<dyn Error>> {
+    fn render(&mut self, player: &mut Player) -> Result<(), Box<dyn Error>> {
         player.render(); // First, render to the texture
-        let renderer = player
-            .renderer()
-            .downcast_ref::<WgpuRenderBackend<TextureTarget>>()
-            .ok_or(WrongRenderBackendType)?;
 
-        let image = unsafe {
-            let mut texture: Option<Image> = None;
-            renderer.target().texture.as_hal::<VulkanApi, _>(|t| {
-                texture = t.map(|t| t.raw_handle());
-            });
-            texture.ok_or("Texture must exist in Vulkan HAL")?
-        };
-
-        unsafe {
-            let create_info = ImageViewCreateInfo::builder().image(image).build();
-
-            let image_view = self.device.create_image_view(&create_info, None)?;
-
-            let vulkan_image = retro_vulkan_image {
-                image_view,
-                image_layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                create_info,
-            };
-
-            (self.interface.set_image.unwrap())(self.interface.handle, &vulkan_image, 0, ptr::null(), 0);
-        };
+        if let Some(image) = &self.image {
+            unsafe {
+                (self.interface.set_image.ok_or("Error")?)(self.interface.handle, image, 0, ptr::null(), 0);
+            }
+        }
+        // Now render to the screen
 
         Ok(())
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn Error>> {
         todo!()
+    }
+
+    fn set_target(&mut self, target: &TextureTarget) -> Result<(), Box<dyn Error>> {
+        let image = unsafe {
+            let mut texture: Option<Image> = None;
+            target.texture.as_hal::<VulkanApi, _>(|t| {
+                texture = t.map(|t| t.raw_handle());
+            });
+            texture.ok_or("Texture must exist in Vulkan HAL")?
+        }; // Don't free this, it belongs to wgpu
+        let create_info = ImageViewCreateInfo::builder().image(image).build();
+        let image_view = unsafe { self.device.create_image_view(&create_info, None)? };
+
+        self.image = Some(retro_vulkan_image {
+            image_view,
+            image_layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            create_info,
+        });
+
+        Ok(())
+    }
+}
+
+impl Drop for VulkanRenderState {
+    fn drop(&mut self) {
+        if let Some(image) = &self.image {
+            unsafe {
+                self.device.destroy_image_view(image.image_view, None);
+            } // Do *not* destroy the image associated with the image view; we didn't create it, wgpu did.
+
+            // Also, don't destroy self.device or self.instance; we didn't create them, RetroArch did.
+        };
+        debug!("Dropping VulkanRenderState");
     }
 }
