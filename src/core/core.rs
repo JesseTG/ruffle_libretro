@@ -7,33 +7,34 @@ use std::time::Duration;
 
 use ash::vk;
 use log::{debug, error, info, warn};
-use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
 use ruffle_core::tag_utils::SwfMovie;
+use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_video_software::backend::SoftwareVideoBackend;
-use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
 use rust_libretro::environment::get_save_directory;
-use rust_libretro::sys::*;
 use rust_libretro::sys::retro_hw_context_type::*;
+use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
+use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
+use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
 
-use crate::{built_info, util};
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
+use crate::core::render::vulkan::{VulkanRenderState, VULKAN_VERSION};
 use crate::core::render::RenderInterfaceError::NoRenderState;
-use crate::core::render::vulkan::VULKAN_VERSION;
-use crate::core::Ruffle;
 use crate::core::state::PlayerState;
 use crate::core::state::PlayerState::{Active, Pending};
+use crate::core::Ruffle;
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
+use crate::{built_info, util};
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -114,13 +115,13 @@ impl Core for Ruffle {
 
             player.run_frame();
 
-
             if let Err(error) = &self
                 .render_state
                 .as_mut()
                 .ok_or(NoRenderState.into())
                 .and_then(|mut f| f.render(player))
-            { // If the render state is valid AND the screen was rendered properly...
+            {
+                // If the render state is valid AND the screen was rendered properly...
                 error!("Error when rendering: {error}");
             }
 
@@ -199,6 +200,27 @@ impl Core for Ruffle {
             ) {
                 Some(true) => debug!("{:?}", self.hw_render_callback),
                 _ => Err("Failed to get hw render")?,
+            };
+        }
+
+        if self.hw_render_callback.unwrap().context_type == RETRO_HW_CONTEXT_VULKAN {
+            self.hw_render_context_negotiation = Some(retro_hw_render_context_negotiation_interface_vulkan {
+                interface_type: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN,
+                interface_version: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
+                get_application_info: Some(VulkanRenderState::get_application_info),
+                create_device: None,
+                destroy_device: None,
+            });
+
+            unsafe {
+                match environment::set_ptr(
+                    self.environ_cb.get(),
+                    RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE,
+                    self.hw_render_context_negotiation.as_ref().unwrap(),
+                ) {
+                    Some(true) => {},
+                    _ => Err("Failed to set render context negotiation interface")?
+                };
             };
         }
 

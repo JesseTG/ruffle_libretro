@@ -171,6 +171,7 @@ pub struct Ruffle {
     vfs: Arc<Cell<Option<retro_vfs_interface>>>,
     environ_cb: Arc<Cell<retro_environment_t>>,
     hw_render_callback: Option<retro_hw_render_callback>,
+    hw_render_context_negotiation: Option<retro_hw_render_context_negotiation_interface_vulkan>,
     render_state: Option<Box<dyn RenderState>>,
     config: Config,
 }
@@ -183,6 +184,7 @@ impl Ruffle {
             vfs: Arc::new(Cell::new(None)),
             environ_cb: Arc::new(Cell::new(None)),
             hw_render_callback: None,
+            hw_render_context_negotiation: None,
             render_state: None,
             config: Config::new(),
         }

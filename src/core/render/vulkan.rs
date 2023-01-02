@@ -4,10 +4,10 @@ use std::mem::transmute;
 use std::ptr;
 use std::sync::Arc;
 
-use ash::{Device, Entry, Instance, vk};
 use ash::vk::{
     ApplicationInfo, Format, Image, ImageLayout, ImageViewCreateInfo, ImageViewType, StaticFn, TaggedStructure,
 };
+use ash::{vk, Device, Entry, Instance};
 use futures::executor::block_on;
 use log::debug;
 use ruffle_core::Player;
@@ -15,21 +15,20 @@ use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_render_wgpu::target::TextureTarget;
 use rust_libretro::environment;
-use rust_libretro_sys::{
-    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE, retro_environment_t, retro_hw_render_context_negotiation_interface_vulkan,
-    RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION, retro_hw_render_interface_type, retro_hw_render_interface_vulkan,
-    retro_vulkan_image,
-};
 use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::*;
 use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
 use rust_libretro_sys::vulkan::VkApplicationInfo;
+use rust_libretro_sys::{
+    retro_environment_t, retro_hw_render_context_negotiation_interface_vulkan, retro_hw_render_interface_type,
+    retro_hw_render_interface_vulkan, retro_vulkan_image, RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
+};
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan as VulkanApi;
 
-use crate::core::render::RenderState;
 use crate::core::render::vulkan::VulkanRenderStateError::*;
+use crate::core::render::RenderState;
 
-pub const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 3, 0);
+pub const VULKAN_VERSION: u32 = vk::API_VERSION_1_3;
 
 #[derive(ThisError, Debug)]
 pub enum VulkanRenderStateError {
@@ -41,6 +40,9 @@ pub enum VulkanRenderStateError {
 
     #[error("Failed to get retro_hw_render_interface_vulkan from libretro")]
     FailedToGetRenderInterface,
+
+    #[error("Failed to get retro_hw_render_context_negotiation_interface_vulkan from libretro")]
+    FailedToGetRenderContextNegotiationInterface,
 
     #[error("Expected a render interface of type RETRO_HW_RENDER_INTERFACE_VULKAN, got {0:?}")]
     WrongInterfaceType(retro_hw_render_interface_type),
@@ -54,7 +56,6 @@ pub enum VulkanRenderStateError {
 
 pub(crate) struct VulkanRenderState {
     interface: retro_hw_render_interface_vulkan,
-    negotiation_interface: retro_hw_render_context_negotiation_interface_vulkan,
     instance: Instance,
     device: Device,
     descriptors: Arc<Descriptors>,
@@ -81,27 +82,23 @@ impl VulkanRenderState {
             _ => Err(FailedToGetRenderInterface)?,
         };
 
-        let negotiation_interface = retro_hw_render_context_negotiation_interface_vulkan {
-            interface_type: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN,
-            interface_version: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
-            get_application_info: Some(Self::get_application_info),
-            create_device: None,
-            destroy_device: None,
-        };
+
 
         let static_fn = StaticFn::load(|sym| {
             let fun = (interface.get_instance_proc_addr)(interface.instance, sym.as_ptr());
             fun.unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null())) as *const c_void
         });
-        let instance = Instance::load(&static_fn, interface.instance);
+        let entry = Entry::from_static_fn(static_fn);
+        let instance = Instance::load(entry.static_fn(), interface.instance);
         let device = Device::load(instance.fp_v1_0(), interface.device);
-        let extensions: Vec<&CStr> = match instance.enumerate_device_extension_properties(interface.gpu) {
+        let extensions: Vec<&CStr> = match entry.enumerate_instance_extension_properties(None) {
             Ok(properties) => properties
                 .iter()
                 .map(|p| CStr::from_ptr(p.extension_name.as_ptr()))
                 .collect(),
             Err(error) => Err(VulkanError("vkEnumerateDeviceExtensionProperties", error))?,
         };
+        debug!("{extensions:#?}");
 
         let descriptors = WgpuRenderBackend::<TextureTarget>::build_descriptors_for_vulkan(
             interface.gpu,
@@ -122,7 +119,6 @@ impl VulkanRenderState {
 
         Ok(Self {
             interface: *interface,
-            negotiation_interface,
             instance,
             device,
             descriptors,
@@ -130,7 +126,7 @@ impl VulkanRenderState {
         })
     }
 
-    unsafe extern "C" fn get_application_info() -> *const VkApplicationInfo {
+    pub unsafe extern "C" fn get_application_info() -> *const VkApplicationInfo {
         &Self::APPLICATION_INFO
     }
 
@@ -146,7 +142,6 @@ impl VulkanRenderState {
         engine_version: 0,
         api_version: VULKAN_VERSION,
     };
-
 }
 
 impl RenderState for VulkanRenderState {
@@ -179,12 +174,16 @@ impl RenderState for VulkanRenderState {
             });
             texture.ok_or("Texture must exist in Vulkan HAL")?
         }; // Don't free this, it belongs to wgpu
-        let create_info = ImageViewCreateInfo::builder().image(image).build();
+        let create_info = ImageViewCreateInfo::builder()
+            .image(image)
+            .view_type(ImageViewType::TYPE_2D)
+            .format(Format::R8G8B8A8_UNORM)
+            .build();
         let image_view = unsafe { self.device.create_image_view(&create_info, None)? };
 
         self.image = Some(retro_vulkan_image {
             image_view,
-            image_layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            image_layout: ImageLayout::GENERAL,
             create_info,
         });
 
