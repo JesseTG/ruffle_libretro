@@ -1,13 +1,12 @@
-use std::ptr;
-use std::borrow::Borrow;
 use std::error::Error;
 use std::ffi::CString;
 use std::ops::DerefMut;
+use std::ptr;
 use std::slice::from_raw_parts;
 use std::time::Duration;
 
 use ash::vk;
-use log::{debug, error, info, log, warn};
+use log::{debug, error, info, warn};
 use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
@@ -21,7 +20,6 @@ use rust_libretro::core::Core;
 use rust_libretro::environment::get_save_directory;
 use rust_libretro::sys::*;
 use rust_libretro::sys::retro_hw_context_type::*;
-use rust_libretro::sys::retro_hw_render_interface_type::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
 
 use crate::{built_info, util};
@@ -30,6 +28,7 @@ use crate::backend::log::RetroLogBackend;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
+use crate::core::render::RenderInterfaceError::NoRenderState;
 use crate::core::Ruffle;
 use crate::core::state::PlayerState;
 use crate::core::state::PlayerState::{Active, Pending};
@@ -46,7 +45,7 @@ impl Core for Ruffle {
         }
     }
 
-    fn on_get_av_info(&mut self, ctx: &mut GetAvInfoContext) -> retro_system_av_info {
+    fn on_get_av_info(&mut self, _ctx: &mut GetAvInfoContext) -> retro_system_av_info {
         self.av_info.expect("Shouldn't be called until after on_load_game")
     }
 
@@ -104,7 +103,7 @@ impl Core for Ruffle {
         todo!()
     }
 
-    fn on_run(&mut self, ctx: &mut RunContext, delta_us: Option<i64>) {
+    fn on_run(&mut self, ctx: &mut RunContext, _delta_us: Option<i64>) {
         if let Active(player) = &self.player {
             ctx.poll_input();
             // TODO: Handle input
@@ -112,7 +111,14 @@ impl Core for Ruffle {
             let mut player = player.lock().unwrap();
 
             player.run_frame();
-            if let Err(error) = self.render(player.deref_mut()) {
+
+            if let Err(error) = self
+                .render_state
+                .as_ref()
+                .ok_or(NoRenderState)
+                .unwrap()
+                .render(player.deref_mut())
+            {
                 error!("Error when rendering: {error}");
             }
 
@@ -305,7 +311,7 @@ impl Core for Ruffle {
         }
     }
 
-    fn on_keyboard_event(&mut self, down: bool, keycode: retro_key, character: u32, key_modifiers: retro_mod) {
+    fn on_keyboard_event(&mut self, down: bool, keycode: retro_key, _character: u32, _key_modifiers: retro_mod) {
         let event = match (down, keycode) {
             (true, keycode) => PlayerEvent::KeyDown {
                 key_code: util::keyboard::to_key_code(keycode),
@@ -323,23 +329,21 @@ impl Core for Ruffle {
         // TODO: Add these events to a queue, then give them all to the emulator in the main loop
     }
 
-    fn on_write_audio(&mut self, ctx: &mut AudioContext) {}
+    fn on_write_audio(&mut self, _ctx: &mut AudioContext) {}
 
     fn on_hw_context_reset(&mut self) {
         info!("on_hw_context_reset");
         match &self.player {
-            Active(player) => {
+            Active(_player) => {
                 // Game is already running
                 // TODO: Refresh all existing backend resources
-                if let Some(hw_render_callback) = self.hw_render_callback {
-                    self.hw_render_interface = match self.get_hw_render_interface(hw_render_callback.context_type) {
-                        Ok(interface) => {
-                            info!("Updated hardware render interface in active player to {interface:?}");
-                            Some(interface)
+                if let Some(render_state) = self.render_state.as_mut() {
+                    match render_state.reset() {
+                        Ok(_) => {
+                            info!("Updated hardware render interface in active player");
                         }
                         Err(error) => {
                             error!("Failed to update hardware render interface in active player: {error}");
-                            None
                         }
                     };
                 } else {
@@ -348,23 +352,17 @@ impl Core for Ruffle {
             }
             Pending(builder) => {
                 // Game is waiting for hardware context to be ready
-                if let (Some(hw_render_callback), Some(av_info)) = (self.hw_render_callback, self.av_info) {
-                    // If the hardware render callback and game AV info were both initialized...
-                    match self.get_render_backend(&hw_render_callback, &av_info) {
-                        Ok((backend, interface)) => {
-                            let player = builder.take().with_renderer(backend).build();
-                            // We take ownership of the builder, then throw it out after the player is built
-                            self.hw_render_interface = Some(interface);
-                            self.player = Active(player);
-                            info!("Initialized player");
-                        }
-                        Err(error) => {
-                            error!("Failed to initialize render backend: {error}");
-                        }
-                    };
-                } else {
-                    error!("Failed to initialize render backend: retro_hw_render_callback and retro_system_av_info must both be set");
-                }
+                match self.get_render_backend() {
+                    Ok((backend, render_state)) => {
+                        // We take ownership of the builder, then throw it out after the player is built
+                        self.player = Active(builder.take().with_renderer(backend).build());
+                        self.render_state = render_state.into();
+                        info!("Initialized player with render backend");
+                    }
+                    Err(error) => {
+                        error!("Failed to initialize render backend: {error}");
+                    }
+                };
             }
             PlayerState::Uninitialized => {
                 debug!("Resetting hardware context before core is ready (this is normal)");
