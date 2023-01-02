@@ -29,6 +29,7 @@ use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
 use crate::core::render::RenderInterfaceError::NoRenderState;
+use crate::core::render::vulkan::VULKAN_VERSION;
 use crate::core::Ruffle;
 use crate::core::state::PlayerState;
 use crate::core::state::PlayerState::{Active, Pending};
@@ -168,7 +169,7 @@ impl Core for Ruffle {
                 RETRO_HW_CONTEXT_OPENGLES3 => 3,
                 RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
                 RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
-                RETRO_HW_CONTEXT_VULKAN => vk::make_version(1, 0, 18),
+                RETRO_HW_CONTEXT_VULKAN => VULKAN_VERSION,
                 _ => 0, // Other video contexts don't need a major version number
             },
             version_minor: match preferred_renderer {

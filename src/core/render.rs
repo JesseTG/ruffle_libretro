@@ -14,7 +14,7 @@ use crate::core::render::RenderInterfaceError::*;
 use crate::core::Ruffle;
 
 mod opengl;
-mod vulkan;
+pub mod vulkan;
 
 pub trait RenderState {
     fn descriptors(&self) -> Arc<Descriptors>;
