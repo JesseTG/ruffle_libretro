@@ -1,4 +1,5 @@
-use std::ffi::{c_char, c_uint, c_void, CString};
+use std::error::Error;
+use std::ffi::{c_char, c_uint, c_void, CStr, CString};
 use std::mem::transmute;
 use std::ptr;
 use std::slice::from_raw_parts;
@@ -11,9 +12,8 @@ use ash::vk::{
 };
 use log::error;
 use rust_libretro_sys::{
-    retro_hw_render_context_negotiation_interface_type,
-    retro_hw_render_context_negotiation_interface_vulkan, RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
-    retro_vulkan_context,
+    retro_hw_render_context_negotiation_interface_type, retro_hw_render_context_negotiation_interface_vulkan,
+    RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION, retro_vulkan_context,
 };
 use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
 use thiserror::Error as ThisError;
@@ -39,6 +39,11 @@ pub struct VulkanContextNegotiationInterface {
     device: Option<ash::Device>,
 }
 
+/// This MUST be kept as a constant, and must *not* be given to a CString.
+/// Otherwise you risk undefined behavior; this has already bitten me in the ass.
+/// (See the git blame for this line for details.)
+const APPLICATION_NAME : &[u8] = b"ruffle_libretro\0";
+
 // TODO: Should I put this behind a mutex?
 static mut INSTANCE: Option<VulkanContextNegotiationInterface> = None;
 static ONCE: Once = Once::new();
@@ -50,14 +55,14 @@ impl VulkanContextNegotiationInterface {
                 let interface = retro_hw_render_context_negotiation_interface_vulkan {
                     interface_type: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN,
                     interface_version: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
-                    get_application_info: None,//Some(Self::get_application_info),
+                    get_application_info: Some(Self::get_application_info),
                     create_device: None, //Some(Self::create_device),
                     destroy_device: None,
                 };
 
                 let application_info = ApplicationInfo::builder()
                     .api_version(vk::API_VERSION_1_3)
-                    .application_name(CString::new(built_info::PKG_NAME).unwrap().as_c_str())
+                    .application_name(CStr::from_ptr(APPLICATION_NAME.as_ptr() as *const c_char))
                     .application_version(vk::make_api_version(
                         0,
                         built_info::PKG_VERSION_MAJOR.parse().unwrap(),
