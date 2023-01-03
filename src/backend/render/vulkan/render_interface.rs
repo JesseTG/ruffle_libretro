@@ -99,19 +99,20 @@ impl VulkanRenderInterface {
         unsafe {
             let interface = &*self.interface;
             let set_image = interface.set_image.ok_or(NullInterfaceFunction("set_image"))?;
-            let ptr = if semaphores.len() > 0 {
+            let ptr = if !semaphores.is_empty() {
                 semaphores.as_ptr()
             } else {
                 ptr::null()
             };
 
-            Ok(set_image(
+            set_image(
                 interface.handle,
                 image,
                 semaphores.len() as u32,
                 ptr,
                 src_queue_family,
-            ))
+            );
+            Ok(())
         }
     }
 
@@ -144,7 +145,8 @@ impl VulkanRenderInterface {
                 .wait_sync_index
                 .ok_or(NullInterfaceFunction("wait_sync_index"))?;
 
-            Ok(wait_sync_index(interface.handle))
+            wait_sync_index(interface.handle);
+            Ok(())
         }
     }
 
@@ -153,7 +155,8 @@ impl VulkanRenderInterface {
             let interface = &*self.interface;
             let lock_queue = interface.lock_queue.ok_or(NullInterfaceFunction("lock_queue"))?;
 
-            Ok(lock_queue(interface.handle))
+            lock_queue(interface.handle);
+            Ok(())
         }
     }
 
@@ -162,7 +165,8 @@ impl VulkanRenderInterface {
             let interface = &*self.interface;
             let unlock_queue = interface.unlock_queue.ok_or(NullInterfaceFunction("unlock_queue"))?;
 
-            Ok(unlock_queue(interface.handle))
+            unlock_queue(interface.handle);
+            Ok(())
         }
     }
 
@@ -172,9 +176,10 @@ impl VulkanRenderInterface {
             let set_command_buffers = interface
                 .set_command_buffers
                 .ok_or(NullInterfaceFunction("set_command_buffers"))?;
-            let ptr = if cmd.len() > 0 { cmd.as_ptr() } else { ptr::null() };
+            let ptr = if !cmd.is_empty() { cmd.as_ptr() } else { ptr::null() };
 
-            Ok(set_command_buffers(interface.handle, cmd.len() as u32, ptr))
+            set_command_buffers(interface.handle, cmd.len() as u32, ptr);
+            Ok(())
         }
     }
 
@@ -185,7 +190,8 @@ impl VulkanRenderInterface {
                 .set_signal_semaphore
                 .ok_or(NullInterfaceFunction("set_signal_semaphore"))?;
 
-            Ok(set_signal_semaphore(interface.handle, semaphore))
+            set_signal_semaphore(interface.handle, semaphore);
+            Ok(())
         }
     }
 
