@@ -16,16 +16,9 @@ use rust_libretro_sys::{
     RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION, retro_vulkan_context,
 };
 use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
-use thiserror::Error as ThisError;
 
 use crate::backend::render::HardwareRenderContextNegotiationInterface;
 use crate::built_info;
-
-#[derive(ThisError, Debug)]
-pub enum NegotiationInterfaceError {
-    #[error("Couldn't use the provided environment callback")]
-    InvalidEnvironmentCallback,
-}
 
 pub struct VulkanContextNegotiationInterface {
     interface: retro_hw_render_context_negotiation_interface_vulkan,
@@ -49,7 +42,7 @@ static mut INSTANCE: Option<VulkanContextNegotiationInterface> = None;
 static ONCE: Once = Once::new();
 
 impl VulkanContextNegotiationInterface {
-    pub fn instance() -> Result<&'static VulkanContextNegotiationInterface, NegotiationInterfaceError> {
+    pub fn instance() -> Result<&'static VulkanContextNegotiationInterface, Box<dyn Error>> {
         unsafe {
             ONCE.call_once(|| {
                 let interface = retro_hw_render_context_negotiation_interface_vulkan {
