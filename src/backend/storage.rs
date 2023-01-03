@@ -1,12 +1,13 @@
-use log::{debug, error, warn};
-use ruffle_core::backend::storage::StorageBackend;
-use rust_libretro::types::{VfsFileOpenFlags, VfsFileOpenHints};
-use rust_libretro::sys::{retro_vfs_interface, retro_vfs_interface_info};
 use std::cell::Cell;
 use std::error::Error;
 use std::ffi::{c_int, CString};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+
+use log::{debug, error, warn};
+use ruffle_core::backend::storage::StorageBackend;
+use rust_libretro::sys::retro_vfs_interface;
+use rust_libretro::types::{VfsFileOpenFlags, VfsFileOpenHints};
 use thiserror::Error as ThisError;
 
 #[derive(ThisError, Debug)]
