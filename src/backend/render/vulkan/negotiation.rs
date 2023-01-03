@@ -50,7 +50,7 @@ impl VulkanContextNegotiationInterface {
                 let interface = retro_hw_render_context_negotiation_interface_vulkan {
                     interface_type: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN,
                     interface_version: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
-                    get_application_info: Some(Self::get_application_info),
+                    get_application_info: None,//Some(Self::get_application_info),
                     create_device: None, //Some(Self::create_device),
                     destroy_device: None,
                 };
