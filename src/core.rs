@@ -4,9 +4,9 @@ use std::sync::Arc;
 use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
 use rust_libretro::contexts::GenericContext;
 use rust_libretro::sys::retro_system_av_info;
+use crate::backend::render::HardwareRenderCallback;
 
 use crate::core::config::Config;
-use crate::core::render::RenderState;
 use crate::core::state::PlayerState;
 
 #[derive(CoreOptions)]
@@ -170,9 +170,7 @@ pub struct Ruffle {
     av_info: Option<retro_system_av_info>,
     vfs: Arc<Cell<Option<retro_vfs_interface>>>,
     environ_cb: Arc<Cell<retro_environment_t>>,
-    hw_render_callback: Option<retro_hw_render_callback>,
-    hw_render_context_negotiation: Option<retro_hw_render_context_negotiation_interface_vulkan>,
-    render_state: Option<Box<dyn RenderState>>,
+    hw_render_callback: Option<HardwareRenderCallback>,
     config: Config,
 }
 
@@ -184,8 +182,6 @@ impl Ruffle {
             vfs: Arc::new(Cell::new(None)),
             environ_cb: Arc::new(Cell::new(None)),
             hw_render_callback: None,
-            hw_render_context_negotiation: None,
-            render_state: None,
             config: Config::new(),
         }
     }
@@ -194,4 +190,3 @@ impl Ruffle {
 mod core;
 pub mod config;
 mod state;
-mod render;

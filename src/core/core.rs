@@ -1,40 +1,44 @@
+use futures::executor::block_on;
 use std::error::Error;
 use std::ffi::CString;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::slice::from_raw_parts;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ash::vk;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
 use ruffle_core::tag_utils::SwfMovie;
-use ruffle_core::{LoadBehavior, PlayerBuilder, PlayerEvent};
+use ruffle_core::{LoadBehavior, Player, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_video_software::backend::SoftwareVideoBackend;
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
+use rust_libretro::environment;
 use rust_libretro::environment::get_save_directory;
 use rust_libretro::sys::retro_hw_context_type::*;
 use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
-use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
-use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
 
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
+use crate::backend::render::opengl::OpenGlWgpuRenderBackend;
+use crate::backend::render::vulkan::VulkanWgpuRenderBackend;
+use crate::backend::render::HardwareRenderCallback;
+use crate::backend::render::HardwareRenderContextNegotiationInterface;
+use crate::backend::render::HardwareRenderError::UnsupportedHardwareContext;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
-use crate::core::render::vulkan::{VulkanRenderState, VULKAN_VERSION};
-use crate::core::render::RenderInterfaceError::NoRenderState;
-use crate::core::state::PlayerState;
-use crate::core::state::PlayerState::{Active, Pending};
+use crate::core::state::PlayerState::{Active, Pending, Uninitialized};
 use crate::core::Ruffle;
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
-use crate::{built_info, util};
+use crate::{backend, built_info, util};
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
+use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -114,16 +118,7 @@ impl Core for Ruffle {
             let player = player.deref_mut();
 
             player.run_frame();
-
-            if let Err(error) = &self
-                .render_state
-                .as_mut()
-                .ok_or(NoRenderState.into())
-                .and_then(|mut f| f.render(player))
-            {
-                // If the render state is valid AND the screen was rendered properly...
-                error!("Error when rendering: {error}");
-            }
+            player.render();
 
             // TODO: Write out audio
             // TODO: React to changed settings
@@ -147,81 +142,14 @@ impl Core for Ruffle {
             return Err("RETRO_PIXEL_FORMAT_XRGB8888 not supported by this frontend".into());
         }
 
-        let preferred_renderer = match { unsafe { environment::get_preferred_hw_render(self.environ_cb.get()) } } {
-            1 => RETRO_HW_CONTEXT_OPENGL,
-            2 => RETRO_HW_CONTEXT_OPENGLES2,
-            3 => RETRO_HW_CONTEXT_OPENGL_CORE,
-            4 => RETRO_HW_CONTEXT_OPENGLES3,
-            5 => RETRO_HW_CONTEXT_OPENGLES_VERSION,
-            6 => RETRO_HW_CONTEXT_VULKAN,
-            7 => RETRO_HW_CONTEXT_DIRECT3D,
-            unknown => Err(format!("Frontend prefers unrecognized hardware context type {unknown}"))?,
-        };
+        let environ_cb = self.environ_cb.get();
+        let preferred_renderer = backend::render::get_preferred_hw_render(environ_cb)?;
+        let hw_render = HardwareRenderCallback::set(preferred_renderer, environ_cb)?;
+        self.hw_render_callback = Some(hw_render);
+        let context_negotiation = <dyn HardwareRenderContextNegotiationInterface>::instance(&hw_render)?;
 
-        self.hw_render_callback = Some(retro_hw_render_callback {
-            context_type: match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGL => RETRO_HW_CONTEXT_OPENGLES2,
-                RETRO_HW_CONTEXT_OPENGLES_VERSION | RETRO_HW_CONTEXT_OPENGL_CORE => RETRO_HW_CONTEXT_OPENGLES3,
-                // wgpu supports OpenGL ES, but *not* plain OpenGL.
-                _ => preferred_renderer,
-            },
-            bottom_left_origin: true,
-            version_major: match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGLES3 => 3,
-                RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
-                RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
-                RETRO_HW_CONTEXT_VULKAN => VULKAN_VERSION,
-                _ => 0, // Other video contexts don't need a major version number
-            },
-            version_minor: match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGLES3 => 1,
-                _ => 0, // Other video contexts don't need a minor version number
-            },
-            cache_context: true,
-            debug_context: true,
-
-            depth: false,   // obsolete
-            stencil: false, // obsolete
-
-            context_reset: Some(retro_hw_context_reset_callback),
-            context_destroy: Some(retro_hw_context_destroyed_callback),
-
-            // Set by the frontend
-            get_current_framebuffer: None,
-            get_proc_address: None,
-        });
-
-        unsafe {
-            // Using ctx.set_hw_render doesn't set the proc address
-            match environment::set_ptr(
-                self.environ_cb.get(),
-                RETRO_ENVIRONMENT_SET_HW_RENDER,
-                self.hw_render_callback.as_ref().unwrap(),
-            ) {
-                Some(true) => debug!("{:?}", self.hw_render_callback),
-                _ => Err("Failed to get hw render")?,
-            };
-        }
-
-        if self.hw_render_callback.unwrap().context_type == RETRO_HW_CONTEXT_VULKAN {
-            self.hw_render_context_negotiation = Some(retro_hw_render_context_negotiation_interface_vulkan {
-                interface_type: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN,
-                interface_version: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
-                get_application_info: Some(VulkanRenderState::get_application_info),
-                create_device: None,
-                destroy_device: None,
-            });
-
-            unsafe {
-                match environment::set_ptr(
-                    self.environ_cb.get(),
-                    RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE,
-                    self.hw_render_context_negotiation.as_ref().unwrap(),
-                ) {
-                    Some(true) => {},
-                    _ => Err("Failed to set render context negotiation interface")?
-                };
-            };
+        if let Some(negotiation) = context_negotiation {
+            <dyn HardwareRenderContextNegotiationInterface>::set(negotiation.deref(), environ_cb)?;
         }
 
         self.av_info = Some(retro_system_av_info {
@@ -254,7 +182,7 @@ impl Core for Ruffle {
             .with_load_behavior(self.config.load_behavior)
             .with_spoofed_url(self.config.spoofed_url.clone());
 
-        let save_directory = unsafe { get_save_directory(self.environ_cb.get()) };
+        let save_directory = unsafe { get_save_directory(environ_cb) };
         let builder = match save_directory {
             Some(base_path) => builder.with_storage(RetroVfsStorageBackend::new(base_path, self.vfs.clone())?),
             _ => builder.with_storage(MemoryStorageBackend::new()),
@@ -356,40 +284,27 @@ impl Core for Ruffle {
     fn on_write_audio(&mut self, _ctx: &mut AudioContext) {}
 
     fn on_hw_context_reset(&mut self) {
-        info!("on_hw_context_reset");
         match &self.player {
-            Active(_player) => {
+            Active(player) => {
                 // Game is already running
-                // TODO: Refresh all existing backend resources
-                if let Some(render_state) = self.render_state.as_mut() {
-                    match render_state.reset() {
-                        Ok(_) => {
-                            info!("Updated hardware render interface in active player");
-                        }
-                        Err(error) => {
-                            error!("Failed to update hardware render interface in active player: {error}");
-                        }
-                    };
-                } else {
-                    warn!("Reset hardware context before hw_render_callback was ready");
-                }
+                todo!("Hardware context reset with active player, still need to refresh the graphics resources");
             }
             Pending(builder) => {
                 // Game is waiting for hardware context to be ready
-                match self.get_render_backend() {
-                    Ok((backend, render_state)) => {
-                        // We take ownership of the builder, then throw it out after the player is built
-                        self.player = Active(builder.take().with_renderer(backend).build());
-                        self.render_state = render_state.into();
-                        info!("Initialized player with render backend");
+                self.player = match self.finalize_player(builder.take()) {
+                    // We take ownership of the builder, then throw it out after the player is built
+                    Ok(player) => {
+                        info!("Initialized render backend and finalized player");
+                        Active(player)
                     }
                     Err(error) => {
                         error!("Failed to initialize render backend: {error}");
+                        Uninitialized
                     }
                 };
             }
-            PlayerState::Uninitialized => {
-                debug!("Resetting hardware context before core is ready (this is normal)");
+            Uninitialized => {
+                warn!("Resetting hardware context before core is ready");
             }
         };
     }
@@ -398,5 +313,37 @@ impl Core for Ruffle {
 
     fn on_core_options_update_display(&mut self) -> bool {
         todo!()
+    }
+}
+
+impl Ruffle {
+    fn finalize_player(&self, mut builder: PlayerBuilder) -> Result<Arc<Mutex<Player>>, Box<dyn Error>> {
+        let environ_cb = self.environ_cb.get();
+        let hw_render_callback = self
+            .hw_render_callback
+            .as_ref()
+            .expect("hw_render_callback should've been initialized in on_load_game");
+        let av_info = &self
+            .av_info
+            .expect("av_info should've been initialized in on_load_game");
+
+        builder = match hw_render_callback.context_type() {
+            RETRO_HW_CONTEXT_OPENGL
+            | RETRO_HW_CONTEXT_OPENGLES2
+            | RETRO_HW_CONTEXT_OPENGLES3
+            | RETRO_HW_CONTEXT_OPENGL_CORE
+            | RETRO_HW_CONTEXT_OPENGLES_VERSION => builder.with_renderer(block_on(OpenGlWgpuRenderBackend::new(
+                hw_render_callback,
+                &av_info.geometry,
+            ))?),
+            RETRO_HW_CONTEXT_VULKAN => builder.with_renderer({
+                let negotiation = VulkanContextNegotiationInterface::instance()?;
+                let interface = VulkanRenderInterface::new(environ_cb, negotiation)?;
+                block_on(VulkanWgpuRenderBackend::new(interface, &av_info.geometry))?
+            }),
+            other => Err(UnsupportedHardwareContext(other))?,
+        };
+
+        Ok(builder.build())
     }
 }
