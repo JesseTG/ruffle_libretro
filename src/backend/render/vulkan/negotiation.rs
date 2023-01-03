@@ -129,8 +129,6 @@ impl VulkanContextNegotiationInterface {
         num_required_device_layers: c_uint,
         required_features: *const vk::PhysicalDeviceFeatures,
     ) -> bool {
-        todo!();
-
         if context.is_null() {
             error!("Frontend provided create_device with a null retro_vulkan_context");
             return false;
@@ -193,6 +191,7 @@ impl VulkanContextNegotiationInterface {
                 .build();
             // TODO: Only get the first element if we don't need presentation_queue_create_info
 
+            /*
             match instance.create_device(context.gpu, &device_create_info, None) {
                 Ok(device) => device,
                 Err(error) => {
@@ -200,10 +199,11 @@ impl VulkanContextNegotiationInterface {
                     return false;
                 }
             }
+             */
         };
 
-        context.device = device.handle();
-        interface.device = Some(device);
+        //context.device = device.handle();
+        //interface.device = Some(device);
 
         todo!()
     }
