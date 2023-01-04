@@ -1,24 +1,45 @@
 use std::error::Error;
 use std::ffi::{c_char, c_uint, c_void, CStr, CString};
 use std::mem::transmute;
-use std::ptr;
 use std::slice::from_raw_parts;
 use std::sync::Once;
+use std::{mem, ptr};
 
-use ash::{Entry, Instance, vk};
+use ash::extensions::khr::Surface;
+use ash::prelude::VkResult;
 use ash::vk::{
-    ApplicationInfo, DeviceCreateInfo, DeviceQueueCreateInfo, PFN_vkGetInstanceProcAddr, PhysicalDeviceFeatures,
-    StaticFn,
+    ApplicationInfo, DeviceCreateInfo, DeviceQueueCreateInfo, ExtensionProperties, LayerProperties,
+    PFN_vkEnumerateDeviceExtensionProperties, PFN_vkGetInstanceProcAddr, PhysicalDevice, PhysicalDeviceFeatures,
+    PhysicalDeviceProperties, PhysicalDeviceType, QueueFamilyProperties, QueueFlags, StaticFn, SurfaceKHR,
 };
-use log::error;
+use ash::{vk, Entry, Instance};
+use log::{debug, error, info, log, warn, LevelFilter};
+use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
+use rust_libretro_sys::vulkan::VkPhysicalDevice;
 use rust_libretro_sys::{
     retro_hw_render_context_negotiation_interface_type, retro_hw_render_context_negotiation_interface_vulkan,
-    RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION, retro_vulkan_context,
+    retro_vulkan_context, RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
 };
-use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
+use thiserror::Error as ThisError;
 
+use crate::backend::render::vulkan::negotiation::VulkanNegotiationError::*;
 use crate::backend::render::HardwareRenderContextNegotiationInterface;
 use crate::built_info;
+
+#[derive(ThisError, Debug)]
+pub enum VulkanNegotiationError {
+    #[error("Vulkan error in {0}: {1}")]
+    VulkanError(&'static str, ash::vk::Result),
+
+    #[error("No VkPhysicalDevices were found")]
+    NoPhysicalDevicesFound,
+
+    #[error("No available VkPhysicalDevices were acceptable")]
+    NoAcceptablePhysicalDevice,
+
+    #[error("No acceptable Vulkan queue family could be found")]
+    NoAcceptableQueueFamily,
+}
 
 pub struct VulkanContextNegotiationInterface {
     interface: retro_hw_render_context_negotiation_interface_vulkan,
@@ -35,7 +56,7 @@ pub struct VulkanContextNegotiationInterface {
 /// This MUST be kept as a constant, and must *not* be given to a CString.
 /// Otherwise you risk undefined behavior; this has already bitten me in the ass.
 /// (See the git blame for this line for details.)
-const APPLICATION_NAME : &[u8] = b"ruffle_libretro\0";
+const APPLICATION_NAME: &[u8] = b"ruffle_libretro\0";
 
 // TODO: Should I put this behind a mutex?
 static mut INSTANCE: Option<VulkanContextNegotiationInterface> = None;
@@ -49,7 +70,7 @@ impl VulkanContextNegotiationInterface {
                     interface_type: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN,
                     interface_version: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
                     get_application_info: Some(Self::get_application_info),
-                    create_device: None, //Some(Self::create_device),
+                    create_device: Some(Self::create_device),
                     destroy_device: None,
                 };
 
@@ -94,26 +115,6 @@ impl VulkanContextNegotiationInterface {
      * create one or more logical devices and create one or more queues.
      * The core must prepare a designated PhysicalDevice, Device, Queue and queue family index
      * which the frontend will use for its internal operation.
-     *
-     * If gpu is not VK_NULL_HANDLE, the physical device provided to the frontend must be this PhysicalDevice.
-     * The core is still free to use other physical devices.
-     *
-     * The frontend will request certain extensions and layers for a device which is created.
-     * The core must ensure that the queue and queue_family_index support GRAPHICS and COMPUTE.
-     *
-     * If surface is not VK_NULL_HANDLE, the core must consider presentation when creating the queues.
-     * If presentation to "surface" is supported on the queue, presentation_queue must be equal to queue.
-     * If not, a second queue must be provided in presentation_queue and presentation_queue_index.
-     * If surface is not VK_NULL_HANDLE, the instance from frontend will have been created with supported for
-     * VK_KHR_surface extension.
-     *
-     * The core is free to set its own queue priorities.
-     * Device provided to frontend is owned by the frontend, but any additional device resources must be freed by core
-     * in destroy_device callback.
-     *
-     * If this function returns true, a PhysicalDevice, Device and Queues are initialized.
-     * If false, none of the above have been initialized and the frontend will attempt
-     * to fallback to "default" device creation, as if this function was never called.
      */
     pub unsafe extern "C" fn create_device(
         context: *mut retro_vulkan_context,
@@ -149,31 +150,87 @@ impl VulkanContextNegotiationInterface {
 
         let entry = Entry::from_static_fn(static_fn);
         let instance = Instance::load(entry.static_fn(), instance);
-        let mut interface = INSTANCE.as_mut().unwrap();
-        interface.entry = Some(entry);
-        interface.instance = Some(instance);
-        interface
-            .required_device_extensions
-            .reserve(num_required_device_extensions as usize);
 
+        // The frontend will request certain extensions and layers for a device which is created.
         let required_device_extensions =
             from_raw_parts(required_device_extensions, num_required_device_extensions as usize);
+        let required_device_extensions_cstr: Vec<&CStr> =
+            required_device_extensions.iter().map(|c| CStr::from_ptr(*c)).collect();
+        debug!("Required device extensions: {required_device_extensions_cstr:?}");
+
         let required_device_layers = from_raw_parts(required_device_layers, num_required_device_layers as usize);
+        let required_device_layers_cstr: Vec<&CStr> =
+            required_device_layers.iter().map(|c| CStr::from_ptr(*c)).collect();
+        debug!("Required device layers: {required_device_layers_cstr:?}");
+
         let required_features = if required_features.is_null() {
             PhysicalDeviceFeatures::default()
         } else {
             *required_features
         };
+        debug!("Required features: {required_features:?}");
 
-        let mut context = &mut *context;
-        context.gpu = if gpu == vk::PhysicalDevice::null() {
-            // If the frontend hasn't selected a GPU...
-
-            return false; // TODO: Select a GPU ourselves based on the criteria in the docs
+        let surface = if surface == SurfaceKHR::null() {
+            debug!("Required features: {required_features:?}");
+            None
         } else {
-            gpu
+            Some(surface)
         };
 
+        let mut interface = INSTANCE.as_mut().unwrap();
+        interface.entry = Some(entry);
+        interface
+            .required_device_extensions
+            .reserve(num_required_device_extensions as usize);
+
+        /*
+         * If gpu is not VK_NULL_HANDLE, the physical device provided to the frontend must be this PhysicalDevice.
+         * The core is still free to use other physical devices.
+         */
+        let selected_device = if gpu != vk::PhysicalDevice::null() {
+            match Self::get_physical_device_info(&instance, gpu) {
+                Ok(device) => {
+                    info!(
+                        "Using VkPhysicalDevice {:?}, per the frontend's request",
+                        CStr::from_ptr(device.properties.device_name.as_ptr())
+                    );
+                    device
+                }
+                Err(error) => {
+                    let props = instance.get_physical_device_properties(gpu);
+                    let name = CStr::from_ptr(props.device_name.as_ptr());
+                    error!("Failed to completely query the frontend-requested VkPhysicalDevice {name:?}: {error}");
+                    return false;
+                }
+            }
+        } else {
+            // If the frontend hasn't selected a GPU...
+            info!("Frontend didn't pick a VkPhysicalDevice, core will do so instead");
+            match Self::select_gpu(
+                &instance,
+                required_device_extensions_cstr.as_slice(),
+                required_device_layers_cstr.as_slice(),
+                &required_features,
+            ) {
+                Ok(device) => {
+                    info!(
+                        "Selected VkPhysicalDevice {:?} {:?}",
+                        device.properties.device_type,
+                        CStr::from_ptr(device.properties.device_name.as_ptr())
+                    );
+                    device
+                }
+                Err(error) => {
+                    error!("Error selecting a VkPhysicalDevice: {error}");
+                    return false;
+                }
+            }
+        };
+
+        /*
+         * The frontend will request certain extensions and layers for a device which is created.
+         * The core must ensure that the queue and queue_family_index support GRAPHICS and COMPUTE.
+         */
         let device = {
             let queue_create_info = DeviceQueueCreateInfo::builder().build();
 
@@ -189,22 +246,180 @@ impl VulkanContextNegotiationInterface {
                 .build();
             // TODO: Only get the first element if we don't need presentation_queue_create_info
 
-            /*
-            match instance.create_device(context.gpu, &device_create_info, None) {
+            match instance.create_device((*context).gpu, &device_create_info, None) {
                 Ok(device) => device,
                 Err(error) => {
                     error!("Failed to create a VkDevice: {error}");
                     return false;
                 }
             }
-             */
         };
 
-        //context.device = device.handle();
-        //interface.device = Some(device);
+        (*context).device = device.handle();
+        interface.instance = Some(instance);
+        interface.device = Some(device);
 
         todo!()
     }
+
+    /*
+     * The frontend will request certain extensions and layers for a device which is created.
+     * The core must ensure that the queue and queue_family_index support GRAPHICS and COMPUTE.
+     */
+    fn select_gpu(
+        instance: &Instance,
+        required_extensions: &[&CStr],
+        required_layers: &[&CStr],
+        required_features: &PhysicalDeviceFeatures,
+    ) -> Result<PhysicalDeviceInfo, VulkanNegotiationError> {
+        let physical_devices = unsafe {
+            instance
+                .enumerate_physical_devices()
+                .map_err(|e| VulkanError("vkEnumeratePhysicalDevices", e))?
+        };
+
+        if physical_devices.is_empty() {
+            return Err(NoPhysicalDevicesFound);
+        }
+
+        // If surface is not VK_NULL_HANDLE, the instance from frontend
+        // will have been created with supported for VK_KHR_surface extension.
+
+        let physical_devices: Vec<PhysicalDeviceInfo> = physical_devices
+            .iter()
+            .filter_map(|device| unsafe {
+                Self::filter_device(
+                    instance,
+                    *device,
+                    required_extensions,
+                    required_layers,
+                    required_features,
+                )
+            })
+            .collect();
+
+        match physical_devices.len() {
+            0 => Err(NoAcceptablePhysicalDevice),
+            1 => Ok(physical_devices[0].clone()),
+            _ => Ok(Self::select_best_device(physical_devices.as_slice()).clone()),
+        }
+    }
+
+    unsafe fn filter_device(
+        instance: &Instance,
+        device: PhysicalDevice,
+        required_extensions: &[&CStr],
+        required_layers: &[&CStr],
+        required_features: &PhysicalDeviceFeatures,
+    ) -> Option<PhysicalDeviceInfo> {
+        // Select the first VkPhysicalDevice that meets the following conditions...
+        let properties = instance.get_physical_device_properties(device);
+        let device_name = CStr::from_ptr(properties.device_name.as_ptr());
+        info!("Evaluating VkPhysicalDevice {device_name:?}");
+
+        // A device that supports the required extensions, if we need any in particular...
+        let extensions = match instance.enumerate_device_extension_properties(device) {
+            Ok(extensions) => {
+                let names: Vec<&CStr> = extensions
+                    .iter()
+                    .map(|e| CStr::from_ptr(e.extension_name.as_ptr()))
+                    .collect();
+
+                info!("\tSupported device extensions: {names:?}");
+                if !required_extensions.iter().all(|e| names.contains(e)) {
+                    // An empty iter().all() will return true
+                    warn!("\t{device_name:?} does not support all required extensions; can't use it");
+                    return None;
+                }
+
+                extensions
+            }
+            Err(error) => {
+                warn!("\tFailed to query {device_name:?} for supported extensions: {error}");
+                return None;
+            }
+        };
+
+        // A device that supports the required layers, if we need any in particular...
+        let layers = match instance.enumerate_device_layer_properties(device) {
+            Ok(layers) => {
+                let names: Vec<&CStr> = layers.iter().map(|e| CStr::from_ptr(e.layer_name.as_ptr())).collect();
+                info!("\tSupported device layers: {names:?}");
+                if !required_layers.iter().all(|e| names.contains(e)) {
+                    warn!("\t{device_name:?} does not support all required layers; can't use it");
+                    return None;
+                }
+
+                layers
+            }
+            Err(error) => {
+                warn!("\tFailed to query {device_name:?} for supported layers: {error}");
+                return None;
+            }
+        };
+
+        let features = instance.get_physical_device_features(device);
+        if Self::device_features_any(*required_features) {
+            // If the frontend requires any specific VkPhysicalDeviceFeatures...
+            warn!("Frontend requires VkPhysicalDeviceFeatures, but this core doesn't check for them yet.");
+            warn!("Please file a bug here, and be sure to say which frontend you're using https://github.com/JesseTG/ruffle_libretro");
+            warn!("Required features: {features:#?}");
+            // TODO: Check that the supported features are provided
+        }
+
+        // A device with a queue that supports GRAPHICS and COMPUTE...
+        let queue_families = instance.get_physical_device_queue_family_properties(device);
+
+        let required_families = QueueFlags::GRAPHICS | QueueFlags::COMPUTE;
+        let family_supported = queue_families.iter().any(|q| q.queue_flags.contains(required_families));
+
+        if !family_supported {
+            warn!("\t{device_name:?} does not support these queue families: {required_families:?}; cannot use it");
+            return None;
+        }
+
+        Some(PhysicalDeviceInfo {
+            device,
+            properties,
+            features,
+            extensions,
+            layers,
+            queue_families,
+        })
+    }
+
+    fn select_best_device(devices: &[PhysicalDeviceInfo]) -> &PhysicalDeviceInfo {
+        &devices[0] // TODO: Implement for real
+    }
+
+    unsafe fn get_physical_device_info(instance: &Instance, device: PhysicalDevice) -> VkResult<PhysicalDeviceInfo> {
+        assert_ne!(device, PhysicalDevice::null());
+
+        Ok(PhysicalDeviceInfo {
+            device,
+            properties: instance.get_physical_device_properties(device),
+            extensions: instance.enumerate_device_extension_properties(device)?,
+            layers: instance.enumerate_device_layer_properties(device)?,
+            features: instance.get_physical_device_features(device),
+            queue_families: instance.get_physical_device_queue_family_properties(device),
+        })
+    }
+
+    fn device_features_any(features: PhysicalDeviceFeatures) -> bool {
+        let features: [vk::Bool32; 55] = unsafe { transmute(features) };
+
+        features.iter().sum::<vk::Bool32>() > 0
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PhysicalDeviceInfo {
+    device: PhysicalDevice,
+    properties: PhysicalDeviceProperties,
+    features: PhysicalDeviceFeatures,
+    extensions: Vec<ExtensionProperties>,
+    layers: Vec<LayerProperties>,
+    queue_families: Vec<QueueFamilyProperties>,
 }
 
 impl HardwareRenderContextNegotiationInterface for VulkanContextNegotiationInterface {
