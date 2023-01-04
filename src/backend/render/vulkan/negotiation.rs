@@ -188,7 +188,7 @@ impl VulkanContextNegotiationInterface {
          * The core is still free to use other physical devices.
          */
         let selected_device = if gpu != vk::PhysicalDevice::null() {
-            match Self::get_physical_device_info(&instance, gpu) {
+            match PhysicalDeviceInfo::new(&instance, gpu) {
                 Ok(device) => {
                     info!(
                         "Using VkPhysicalDevice {:?}, per the frontend's request",
@@ -359,7 +359,7 @@ impl VulkanContextNegotiationInterface {
         };
 
         let features = instance.get_physical_device_features(device);
-        if Self::device_features_any(*required_features) {
+        if Self::physical_device_features_any(*required_features) {
             // If the frontend requires any specific VkPhysicalDeviceFeatures...
             warn!("Frontend requires VkPhysicalDeviceFeatures, but this core doesn't check for them yet.");
             warn!("Please file a bug here, and be sure to say which frontend you're using https://github.com/JesseTG/ruffle_libretro");
@@ -392,20 +392,7 @@ impl VulkanContextNegotiationInterface {
         &devices[0] // TODO: Implement for real
     }
 
-    unsafe fn get_physical_device_info(instance: &Instance, device: PhysicalDevice) -> VkResult<PhysicalDeviceInfo> {
-        assert_ne!(device, PhysicalDevice::null());
-
-        Ok(PhysicalDeviceInfo {
-            device,
-            properties: instance.get_physical_device_properties(device),
-            extensions: instance.enumerate_device_extension_properties(device)?,
-            layers: instance.enumerate_device_layer_properties(device)?,
-            features: instance.get_physical_device_features(device),
-            queue_families: instance.get_physical_device_queue_family_properties(device),
-        })
-    }
-
-    fn device_features_any(features: PhysicalDeviceFeatures) -> bool {
+    fn physical_device_features_any(features: PhysicalDeviceFeatures) -> bool {
         let features: [vk::Bool32; 55] = unsafe { transmute(features) };
 
         features.iter().sum::<vk::Bool32>() > 0
@@ -420,6 +407,21 @@ struct PhysicalDeviceInfo {
     extensions: Vec<ExtensionProperties>,
     layers: Vec<LayerProperties>,
     queue_families: Vec<QueueFamilyProperties>,
+}
+
+impl PhysicalDeviceInfo {
+    pub unsafe fn new(instance: &Instance, device: PhysicalDevice) -> VkResult<PhysicalDeviceInfo> {
+        assert_ne!(device, PhysicalDevice::null());
+
+        Ok(PhysicalDeviceInfo {
+            device,
+            properties: instance.get_physical_device_properties(device),
+            extensions: instance.enumerate_device_extension_properties(device)?,
+            layers: instance.enumerate_device_layer_properties(device)?,
+            features: instance.get_physical_device_features(device),
+            queue_families: instance.get_physical_device_queue_family_properties(device),
+        })
+    }
 }
 
 impl HardwareRenderContextNegotiationInterface for VulkanContextNegotiationInterface {
