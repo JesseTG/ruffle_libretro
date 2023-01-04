@@ -288,7 +288,7 @@ impl VulkanContextNegotiationInterface {
         let physical_devices: Vec<PhysicalDeviceInfo> = physical_devices
             .iter()
             .filter_map(|device| unsafe {
-                Self::filter_device(
+                Self::filter_physical_device(
                     instance,
                     *device,
                     required_extensions,
@@ -305,7 +305,7 @@ impl VulkanContextNegotiationInterface {
         }
     }
 
-    unsafe fn filter_device(
+    unsafe fn filter_physical_device(
         instance: &Instance,
         device: PhysicalDevice,
         required_extensions: &[&CStr],
