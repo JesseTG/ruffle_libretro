@@ -301,7 +301,7 @@ impl VulkanContextNegotiationInterface {
         match physical_devices.len() {
             0 => Err(NoAcceptablePhysicalDevice),
             1 => Ok(physical_devices[0].clone()),
-            _ => Ok(Self::select_best_device(physical_devices.as_slice()).clone()),
+            _ => Ok(Self::select_best_physical_device(physical_devices.as_slice()).clone()),
         }
     }
 
@@ -388,7 +388,7 @@ impl VulkanContextNegotiationInterface {
         })
     }
 
-    fn select_best_device(devices: &[PhysicalDeviceInfo]) -> &PhysicalDeviceInfo {
+    fn select_best_physical_device(devices: &[PhysicalDeviceInfo]) -> &PhysicalDeviceInfo {
         &devices[0] // TODO: Implement for real
     }
 
