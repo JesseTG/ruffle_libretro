@@ -168,3 +168,21 @@ impl dyn HardwareRenderContextNegotiationInterface {
         }
     }
 }
+
+// We try to request the highest limits we can get away with
+fn required_limits(adapter: &wgpu::Adapter) -> (wgpu::Limits, wgpu::Features) {
+    // We start off with the lowest limits we actually need - basically GL-ES 3.0
+    let mut limits = wgpu::Limits::downlevel_webgl2_defaults();
+    // Then we increase parts of it to the maximum supported by the adapter, to take advantage of
+    // more powerful hardware or capabilities
+    limits = limits.using_resolution(adapter.limits());
+    limits = limits.using_alignment(adapter.limits());
+
+    limits.max_storage_buffers_per_shader_stage =
+        adapter.limits().max_storage_buffers_per_shader_stage;
+    limits.max_storage_buffer_binding_size = adapter.limits().max_storage_buffer_binding_size;
+
+    let features = wgpu::Features::DEPTH24PLUS_STENCIL8;
+
+    (limits, features)
+}

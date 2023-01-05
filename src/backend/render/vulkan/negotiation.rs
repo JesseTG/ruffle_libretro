@@ -8,8 +8,9 @@ use std::sync::Once;
 use ash::extensions::khr::Surface;
 use ash::prelude::VkResult;
 use ash::vk::{
-    ApplicationInfo, ExtensionProperties, LayerProperties, PFN_vkGetInstanceProcAddr, PhysicalDevice,
-    PhysicalDeviceFeatures, PhysicalDeviceProperties, QueueFamilyProperties, QueueFlags, StaticFn, SurfaceKHR,
+    ApplicationInfo, DeviceCreateFlags, DeviceCreateInfo, DeviceQueueCreateFlags, DeviceQueueCreateInfo,
+    ExtensionProperties, LayerProperties, PFN_vkGetInstanceProcAddr, PhysicalDevice, PhysicalDeviceFeatures,
+    PhysicalDeviceProperties, QueueFamilyProperties, QueueFlags, StaticFn, SurfaceKHR,
 };
 use ash::{vk, Entry, Instance};
 use log::{debug, error, info, log, warn};
@@ -71,6 +72,11 @@ impl VulkanContextNegotiationInterface {
                     interface_version: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
                     get_application_info: Some(Self::get_application_info),
                     create_device: Some(Self::create_device),
+
+                    // No need for a destroy_device because create_device won't allocate
+                    // any resources that the frontend won't deallocate itself.
+                    // That includes VkQueues and VkPhysicalDevices;
+                    // those are deallocated by Vulkan automatically.
                     destroy_device: None,
                 };
 
@@ -252,15 +258,51 @@ impl VulkanContextNegotiationInterface {
                 }
             }
         };
+        info!(
+            "Selected queue families {0} (gfx/compute) and {1} (presentation)",
+            queue_families.queue_family_index, queue_families.presentation_queue_family_index
+        );
+
+        let device = match Self::create_logical_device(
+            &instance,
+            &physical_device,
+            &queue_families,
+            required_device_extensions,
+            required_device_layers,
+            &required_features,
+        ) {
+            Ok(device) => device,
+            Err(error) => {
+                error!("Error when creating VkDevice: {error}");
+                return false;
+            }
+        };
+        info!("Created VkDevice {0:?}", device.handle());
+
+        let queues = Queues::new(
+            device.get_device_queue(queue_families.queue_family_index, 0),
+            device.get_device_queue(queue_families.presentation_queue_family_index, 0),
+        );
 
         (*context).gpu = physical_device.device;
         (*context).queue_family_index = queue_families.queue_family_index;
         (*context).presentation_queue_family_index = queue_families.presentation_queue_family_index;
+        (*context).queue = queues.queue;
+        (*context).presentation_queue = queues.presentation_queue;
+        (*context).device = device.handle();
 
         interface.instance = Some(instance);
         interface.surface_fns = surface_fn;
+        interface.device = Some(device);
+        interface.required_device_extensions = required_device_extensions
+            .iter()
+            .map(|p| CString::from(CStr::from_ptr(*p)))
+            .collect();
 
-        todo!()
+        // If this function returns true, a PhysicalDevice, Device and Queues are initialized.
+        // If false, none of the above have been initialized and the frontend will attempt
+        // to fallback to "default" device creation, as if this function was never called.
+        true
     }
 
     /*
@@ -463,10 +505,10 @@ impl VulkanContextNegotiationInterface {
             .queue_families
             .iter()
             .enumerate()
-            .find_map(|(i, properties)| unsafe {
+            .find_map(|(i, _)| unsafe {
                 match surface_fn.get_physical_device_surface_support(physical_device.device, i as u32, surface) {
                     Ok(true) => Some(Ok(i as u32)), // This queue family supports presentation, let's use it
-                    Ok(false) => None, // This queue family doesn't support presentation, let's not use it
+                    Ok(false) => None,              // This queue family doesn't support presentation, let's not use it
                     Err(error) => Some(Err(VulkanError("vkGetPhysicalDeviceSurfaceSupportKHR", error))), // There was an error, let's report it
                 }
             })
@@ -475,9 +517,52 @@ impl VulkanContextNegotiationInterface {
         if let Some(presentation_queue_family) = presentation_queue_family {
             // If we found a queue family that supports presentation...
             Ok(QueueFamilies::new(queue_family, presentation_queue_family))
-        }
-        else {
+        } else {
             Err(NoAcceptableQueueFamily)
+        }
+    }
+
+    fn create_logical_device(
+        instance: &Instance,
+        physical_device: &PhysicalDeviceInfo,
+        queue_families: &QueueFamilies,
+        enabled_extensions: &[*const c_char],
+        enabled_layers: &[*const c_char],
+        enabled_features: &PhysicalDeviceFeatures,
+    ) -> Result<ash::Device, VulkanNegotiationError> {
+        let queue_create_info = DeviceQueueCreateInfo::builder()
+            .queue_family_index(queue_families.queue_family_index)
+            .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.
+            .build();
+
+        let presentation_queue_create_info = if queue_families.are_same() {
+            queue_create_info
+        } else {
+            DeviceQueueCreateInfo::builder()
+                .queue_family_index(queue_families.presentation_queue_family_index)
+                .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.
+                .build()
+        };
+
+        let queue_create_infos = [queue_create_info, presentation_queue_create_info];
+        let queue_create_infos = if queue_families.are_same() {
+            &queue_create_infos[0..1]
+        } else {
+            queue_create_infos.as_slice()
+        };
+
+        let device_create_info = DeviceCreateInfo::builder()
+            .queue_create_infos(queue_create_infos)
+            .enabled_features(enabled_features)
+            .enabled_extension_names(enabled_extensions)
+            .enabled_layer_names(enabled_layers)
+            // .flags(DeviceCreateFlags) VkDeviceCreateFlags is empty, currently reserved
+            .build();
+
+        unsafe {
+            instance
+                .create_device(physical_device.device, &device_create_info, None)
+                .map_err(|error| VulkanError("vkCreateDevice", error))
         }
     }
 }
@@ -501,6 +586,7 @@ struct PhysicalDeviceInfo {
     layers: Vec<LayerProperties>,
     queue_families: Vec<QueueFamilyProperties>,
 }
+
 impl PhysicalDeviceInfo {
     pub unsafe fn new(instance: &Instance, device: PhysicalDevice) -> VkResult<PhysicalDeviceInfo> {
         assert_ne!(device, PhysicalDevice::null());
@@ -527,6 +613,25 @@ impl QueueFamilies {
         Self {
             queue_family_index,
             presentation_queue_family_index,
+        }
+    }
+
+    pub fn are_same(&self) -> bool {
+        self.queue_family_index == self.presentation_queue_family_index
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Queues {
+    queue: vk::Queue,
+    presentation_queue: vk::Queue,
+}
+
+impl Queues {
+    pub fn new(queue: vk::Queue, presentation_queue: vk::Queue) -> Self {
+        Self {
+            queue,
+            presentation_queue,
         }
     }
 }

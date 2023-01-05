@@ -86,6 +86,10 @@ impl VulkanRenderInterface {
         &self.entry
     }
 
+    pub fn instance(&self) -> &Instance {
+        &self.instance
+    }
+
     pub fn queue_index(&self) -> u32 {
         unsafe { (*self.interface).queue_index }
     }

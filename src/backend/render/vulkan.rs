@@ -1,15 +1,17 @@
+use std::borrow::Cow;
 use std::error::Error;
 use std::ffi::CStr;
+use std::path::Path;
 use std::sync::Arc;
 
+use crate::backend::render::required_limits;
 use ash::vk;
 use ash::vk::{
-    Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceRange, ImageViewCreateInfo,
-    ImageViewType,
+    Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceRange, ImageViewCreateInfo, ImageViewType,
 };
 use gc_arena::MutationContext;
-use ruffle_core::Color;
 use ruffle_core::swf::Glyph;
+use ruffle_core::Color;
 use ruffle_render::backend::{Context3D, Context3DCommand, RenderBackend, ShapeHandle, ViewportDimensions};
 use ruffle_render::bitmap::{Bitmap, BitmapHandle, BitmapSource};
 use ruffle_render::commands::CommandList;
@@ -18,21 +20,20 @@ use ruffle_render::shape_utils::DistilledShape;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_render_wgpu::target::TextureTarget;
-use rust_libretro_sys::{
-    retro_game_geometry,
-    retro_vulkan_image,
-};
+use rust_libretro_sys::{retro_environment_t, retro_game_geometry, retro_vulkan_image};
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan as VulkanApi;
+use wgpu_hal::{Api, InstanceFlags};
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
-use crate::backend::render::vulkan::VulkanRenderError::VulkanError;
+use crate::backend::render::vulkan::VulkanRenderBackendError::VulkanError;
 
 pub mod negotiation;
 pub mod render_interface;
 
 #[derive(ThisError, Debug)]
-pub enum VulkanRenderError {
+pub enum VulkanRenderBackendError {
     #[error("Vulkan error in {0}: {1}")]
     VulkanError(&'static str, ash::vk::Result),
 }
@@ -45,7 +46,9 @@ pub struct VulkanWgpuRenderBackend {
 }
 
 impl VulkanWgpuRenderBackend {
-    pub async fn new(interface: VulkanRenderInterface, geometry: &retro_game_geometry) -> Result<Self, Box<dyn Error>> {
+    pub fn new(environ_cb: retro_environment_t, negotiation: &VulkanContextNegotiationInterface, geometry: &retro_game_geometry) -> Result<Self, Box<dyn Error>> {
+
+        let interface = VulkanRenderInterface::new(environ_cb, negotiation)?;
         let device = interface.device();
         let entry = interface.entry();
         let mut extensions: Vec<&CStr> = match entry.enumerate_instance_extension_properties(None) {
@@ -56,29 +59,70 @@ impl VulkanWgpuRenderBackend {
             Err(error) => Err(VulkanError("vkEnumerateDeviceExtensionProperties", error))?,
         };
 
-        // TODO: Implement the context negotiation interface
         extensions.push(ash::extensions::khr::Swapchain::name());
         extensions.push(ash::extensions::khr::TimelineSemaphore::name());
 
         let descriptors = unsafe {
-            WgpuRenderBackend::<TextureTarget>::build_descriptors_for_vulkan(
-                interface.gpu(),
+            // Create a HAL that wraps the VkInstance that RetroArch provided.
+            // RetroArch still owns it, so this HAL should not be dropped.
+            let vk_instance = <wgpu_hal::api::Vulkan as Api>::Instance::from_raw(
+                entry.clone(),
+                interface.instance().clone(),
+                vk::API_VERSION_1_3,
+                0,
+                extensions.clone(),
+                InstanceFlags::VALIDATION,
+                false, // TODO: Populate properly
+                None
+            )?;
+
+            // Now wrap the VkPhysicalDevice in a HAL.
+            // VkPhysicalDevice lifetimes are managed by Vulkan,
+            // so this won't be cleaned up early.
+            let vk_physical_device = vk_instance
+                .expose_adapter(interface.gpu())
+                .ok_or("Failed to expose Vulkan adapter from HAL")?;
+
+            // Now create a platform-independent wrapper around the VkInstance.
+            let instance = wgpu::Instance::from_hal::<wgpu_hal::api::Vulkan>(vk_instance);
+
+            // Create a HAL wrapper around the VkDevice
+            // (i.e. the opened handle to the VkPhysicalDevice).
+            // This is still owned by RetroArch, so don't drop it!
+            let vk_device = vk_physical_device.adapter.device_from_raw(
                 device.clone(),
                 false,
-                extensions.as_slice(),                 // TODO: Populate this properly
-                wgpu::Features::all_native_mask(),     // TODO: Populate this properly
-                wgpu_hal::UpdateAfterBindTypes::all(), // TODO: Populate this properly
-                interface.queue_index(),               // I think this field is misnamed
-                0,
+                extensions.as_slice(),
+                wgpu::Features::empty(), // TODO: Find good values for this
+                wgpu_hal::UpdateAfterBindTypes::empty(), // TODO: Find good values for this
+                interface.queue_index(),
+                0, // TODO: Is there ever a reason this should be non-zero?
+            )?;
+
+            // Create a platform-independent wrapper around the VkPhysicalDevice.
+            let adapter = instance.create_adapter_from_hal(vk_physical_device);
+            let (limits, features) = required_limits(&adapter);
+
+            // Create platform-independent wrappers around the VkDevice
+            // and the VkQueue that it uses.
+            let (device, queue) = adapter.create_device_from_hal(
+                vk_device,
+                &wgpu::DeviceDescriptor {
+                    label: Some("RetroArch VkDevice"),
+                    features,
+                    limits,
+                },
                 None,
-            )
-        }
-        .await?;
+            )?;
+
+            Arc::new(Descriptors::new(adapter, device, queue))
+        };
 
         let (width, height) = (geometry.base_width, geometry.base_height);
-        let descriptors = Arc::new(descriptors);
         let target = TextureTarget::new(&descriptors.device, (width, height))?;
 
+        // Create a VkImage that will be used to render the emulator's output.
+        // Don't free it manually, it belongs to wgpu!
         let image = unsafe {
             let mut texture: Option<Image> = None;
             target.texture.as_hal::<VulkanApi, _>(|t| {
@@ -87,9 +131,10 @@ impl VulkanWgpuRenderBackend {
             texture.ok_or("Texture must exist in Vulkan HAL")?
         }; // Don't free this, it belongs to wgpu
 
-        let backend = WgpuRenderBackend::new(descriptors.clone(), target)?;
+        let backend = WgpuRenderBackend::new(descriptors.clone(), target, 4)?;
+        // TODO: Get the sample count from the core config
         let subresource_range = ImageSubresourceRange::builder()
-            .aspect_mask(ImageAspectFlags::COLOR | ImageAspectFlags::COLOR)
+            .aspect_mask(ImageAspectFlags::COLOR)
             .level_count(vk::REMAINING_MIP_LEVELS)
             .layer_count(vk::REMAINING_ARRAY_LAYERS)
             .build();
@@ -178,6 +223,10 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         mc: MutationContext<'gc, '_>,
     ) -> Result<(), RuffleError> {
         self.backend.context3d_present(context, commands, mc)
+    }
+
+    fn debug_info(&self) -> Cow<'static, str> {
+        self.backend.debug_info()
     }
 }
 

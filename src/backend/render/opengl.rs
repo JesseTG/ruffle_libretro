@@ -1,5 +1,7 @@
+use std::borrow::Cow;
 use std::error::Error;
 use std::ffi::{c_void, CString};
+use std::path::Path;
 use std::ptr;
 use std::sync::Arc;
 
@@ -13,10 +15,11 @@ use ruffle_render::commands::CommandList;
 use ruffle_render::error::Error as RuffleError;
 use ruffle_render::shape_utils::DistilledShape;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
+use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_render_wgpu::target::TextureTarget;
 use rust_libretro_sys::retro_game_geometry;
 
-use crate::backend::render::HardwareRenderCallback;
+use crate::backend::render::{HardwareRenderCallback, required_limits};
 
 pub struct OpenGlWgpuRenderBackend {
     backend: WgpuRenderBackend<TextureTarget>,
@@ -28,7 +31,7 @@ impl OpenGlWgpuRenderBackend {
         geometry: &retro_game_geometry,
     ) -> Result<OpenGlWgpuRenderBackend, Box<dyn Error>> {
         let descriptors = unsafe {
-            WgpuRenderBackend::<TextureTarget>::build_descriptors_for_gl(
+            Self::build_descriptors_for_gl(
                 |sym| {
                     CString::new(sym)
                         .ok() // Get the symbol name ready for C...
@@ -46,8 +49,34 @@ impl OpenGlWgpuRenderBackend {
         let target = TextureTarget::new(&descriptors.device, (geometry.base_width, geometry.max_height))?;
 
         Ok(Self {
-            backend: WgpuRenderBackend::new(Arc::new(descriptors), target)?,
+            backend: WgpuRenderBackend::new(Arc::new(descriptors), target, 4)?,
+            // TODO: Get the sample count from the core config
         })
+    }
+
+      async unsafe fn build_descriptors_for_gl(
+        fun: impl FnMut(&str) -> *const core::ffi::c_void,
+        trace_path: Option<&Path>,
+    ) -> Result<Descriptors, Box<dyn Error>> {
+        use wgpu_hal::api::Gles;
+        use wgpu_hal::Api;
+        let instance = wgpu::Instance::new(wgpu::Backends::GL);
+        let adapter_hal =
+            <Gles as Api>::Adapter::new_external(fun).expect("expose_adapter should be infallible");
+        let adapter = instance.create_adapter_from_hal(adapter_hal);
+        let (limits, features) = required_limits(&adapter);
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    features,
+                    limits,
+                },
+                trace_path,
+            )
+            .await?;
+
+        Ok(Descriptors::new(adapter, device, queue))
     }
 }
 
@@ -111,5 +140,9 @@ impl RenderBackend for OpenGlWgpuRenderBackend {
         mc: MutationContext<'gc, '_>,
     ) -> Result<(), RuffleError> {
         self.backend.context3d_present(context, commands, mc)
+    }
+
+    fn debug_info(&self) -> Cow<'static, str> {
+        self.backend.debug_info()
     }
 }
