@@ -482,6 +482,16 @@ impl VulkanContextNegotiationInterface {
     }
 }
 
+impl HardwareRenderContextNegotiationInterface for VulkanContextNegotiationInterface {
+    unsafe fn get_ptr(&self) -> *const c_void {
+        (&self.interface as *const _) as *const c_void
+    }
+
+    fn r#type(&self) -> retro_hw_render_context_negotiation_interface_type {
+        RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN
+    }
+}
+
 #[derive(Clone, Debug)]
 struct PhysicalDeviceInfo {
     device: PhysicalDevice,
@@ -518,15 +528,5 @@ impl QueueFamilies {
             queue_family_index,
             presentation_queue_family_index,
         }
-    }
-}
-
-impl HardwareRenderContextNegotiationInterface for VulkanContextNegotiationInterface {
-    unsafe fn get_ptr(&self) -> *const c_void {
-        (&self.interface as *const _) as *const c_void
-    }
-
-    fn r#type(&self) -> retro_hw_render_context_negotiation_interface_type {
-        RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN
     }
 }
