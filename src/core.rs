@@ -172,6 +172,7 @@ pub struct Ruffle {
     environ_cb: Arc<Cell<retro_environment_t>>,
     hw_render_callback: Option<HardwareRenderCallback>,
     config: Config,
+    threaded_audio: bool,
 }
 
 impl Ruffle {
@@ -183,6 +184,7 @@ impl Ruffle {
             environ_cb: Arc::new(Cell::new(None)),
             hw_render_callback: None,
             config: Config::new(),
+            threaded_audio: false,
         }
     }
 }
