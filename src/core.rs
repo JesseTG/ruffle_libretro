@@ -192,3 +192,4 @@ impl Ruffle {
 mod core;
 pub mod config;
 mod state;
+mod input;
