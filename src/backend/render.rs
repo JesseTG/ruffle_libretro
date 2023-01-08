@@ -146,7 +146,7 @@ impl dyn HardwareRenderContextNegotiationInterface {
         hw_render: &HardwareRenderCallback,
     ) -> Result<Option<&'static impl HardwareRenderContextNegotiationInterface>, Box<dyn Error>> {
         match hw_render.callback.context_type {
-            RETRO_HW_CONTEXT_VULKAN => Ok(Some(VulkanContextNegotiationInterface::instance()?)),
+            RETRO_HW_CONTEXT_VULKAN => Ok(Some(VulkanContextNegotiationInterface::get_instance()?)),
             _ => Ok(None), // Not an error;
         }
     }

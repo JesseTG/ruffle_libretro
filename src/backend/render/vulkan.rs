@@ -27,10 +27,10 @@ use wgpu_hal::{Api, InstanceFlags};
 use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
-use crate::backend::render::vulkan::VulkanRenderBackendError::VulkanError;
 
 pub mod negotiation;
 pub mod render_interface;
+mod context;
 
 #[derive(ThisError, Debug)]
 pub enum VulkanRenderBackendError {
@@ -49,75 +49,9 @@ impl VulkanWgpuRenderBackend {
     pub fn new(environ_cb: retro_environment_t, negotiation: &VulkanContextNegotiationInterface, geometry: &retro_game_geometry) -> Result<Self, Box<dyn Error>> {
 
         let interface = VulkanRenderInterface::new(environ_cb, negotiation)?;
-        let device = interface.device();
-        let entry = interface.entry();
-        let mut extensions: Vec<&CStr> = match entry.enumerate_instance_extension_properties(None) {
-            Ok(properties) => properties
-                .iter()
-                .map(|p| unsafe { CStr::from_ptr(p.extension_name.as_ptr()) })
-                .collect(),
-            Err(error) => Err(VulkanError("vkEnumerateDeviceExtensionProperties", error))?,
-        };
+        let context = interface.get_wgpu_context();
 
-        extensions.push(ash::extensions::khr::Swapchain::name());
-        extensions.push(ash::extensions::khr::TimelineSemaphore::name());
-
-        let descriptors = unsafe {
-            // Create a HAL that wraps the VkInstance that RetroArch provided.
-            // RetroArch still owns it, so this HAL should not be dropped.
-            let vk_instance = <wgpu_hal::api::Vulkan as Api>::Instance::from_raw(
-                entry.clone(),
-                interface.instance().clone(),
-                vk::API_VERSION_1_3,
-                0,
-                extensions.clone(),
-                InstanceFlags::VALIDATION,
-                false, // TODO: Populate properly
-                None
-            )?;
-
-            // Now wrap the VkPhysicalDevice in a HAL.
-            // VkPhysicalDevice lifetimes are managed by Vulkan,
-            // so this won't be cleaned up early.
-            let vk_physical_device = vk_instance
-                .expose_adapter(interface.gpu())
-                .ok_or("Failed to expose Vulkan adapter from HAL")?;
-
-            // Now create a platform-independent wrapper around the VkInstance.
-            let instance = wgpu::Instance::from_hal::<wgpu_hal::api::Vulkan>(vk_instance);
-
-            // Create a HAL wrapper around the VkDevice
-            // (i.e. the opened handle to the VkPhysicalDevice).
-            // This is still owned by RetroArch, so don't drop it!
-            let vk_device = vk_physical_device.adapter.device_from_raw(
-                device.clone(),
-                false,
-                extensions.as_slice(),
-                wgpu::Features::empty(), // TODO: Find good values for this
-                wgpu_hal::UpdateAfterBindTypes::empty(), // TODO: Find good values for this
-                interface.queue_index(),
-                0, // TODO: Is there ever a reason this should be non-zero?
-            )?;
-
-            // Create a platform-independent wrapper around the VkPhysicalDevice.
-            let adapter = instance.create_adapter_from_hal(vk_physical_device);
-            let (limits, features) = required_limits(&adapter);
-
-            // Create platform-independent wrappers around the VkDevice
-            // and the VkQueue that it uses.
-            let (device, queue) = adapter.create_device_from_hal(
-                vk_device,
-                &wgpu::DeviceDescriptor {
-                    label: Some("RetroArch VkDevice"),
-                    features,
-                    limits,
-                },
-                None,
-            )?;
-
-            Arc::new(Descriptors::new(adapter, device, queue))
-        };
-
+        let descriptors = Arc::new(Descriptors::new(context.adapter, context.device, context.queue));
         let (width, height) = (geometry.base_width, geometry.base_height);
         let target = TextureTarget::new(&descriptors.device, (width, height))?;
 
@@ -146,7 +80,7 @@ impl VulkanWgpuRenderBackend {
             .subresource_range(subresource_range)
             .build();
 
-        let image_view = unsafe { device.create_image_view(&create_info, None)? };
+        let image_view = unsafe { context.device.create_image_view(&create_info, None)? };
 
         let image = retro_vulkan_image {
             image_view,
@@ -233,7 +167,7 @@ impl RenderBackend for VulkanWgpuRenderBackend {
 impl Drop for VulkanWgpuRenderBackend {
     fn drop(&mut self) {
         unsafe {
-            self.interface.device().destroy_image_view(self.image.image_view, None);
+            self.interface.device.destroy_image_view(self.image.image_view, None);
         } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did.
 
         // Also, don't destroy self.device or self.instance;
