@@ -268,7 +268,7 @@ impl Core for Ruffle {
         if let Active(player) = &self.player {
             let mut player = player.lock().unwrap();
 
-            player.set_letterbox(self.config.letterbox); // TODO: What if old letterbox != new letterbox?
+            player.set_letterbox(self.config.letterbox); // TODO: What if old letterbox == new letterbox?
             player.set_max_execution_duration(self.config.max_execution_duration);
         }
     }
