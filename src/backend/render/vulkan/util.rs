@@ -55,10 +55,18 @@ impl Names {
         Self { cstring, ptr }
     }
 
-    pub fn add_str(&mut self, name: &'static str) {
+    pub fn add_str(&mut self, name: &'static str) -> &mut Self {
         let cstring = CString::new(name).unwrap();
         self.cstring.push(cstring);
         self.ptr.push(unsafe {self.cstring[self.cstring.len() - 1].as_ptr()});
+        self
+    }
+
+    pub fn add_cstr(&mut self, name: &'static CStr) -> &mut Self {
+        let cstring = CString::from(name);
+        self.cstring.push(cstring);
+        self.ptr.push(unsafe {self.cstring[self.cstring.len() - 1].as_ptr()});
+        self
     }
 
     pub fn is_empty(&self) -> bool {
