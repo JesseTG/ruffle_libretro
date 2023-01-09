@@ -1,3 +1,4 @@
+use std::time::Duration;
 use ruffle_core::backend::audio::{AudioBackend, AudioMixer, DecodeError, RegisterError, SoundHandle, SoundInstanceHandle, SoundTransform};
 use ruffle_core::swf::{Sound, SoundFormat, SoundInfo, SoundStreamHead};
 use ruffle_core::tag_utils::SwfSlice;
@@ -6,7 +7,7 @@ pub struct RetroAudioBackend {
 
     mixer: AudioMixer,
     playing: bool,
-    output: [i16; 8192],
+    output: [i16; 4096],
 }
 
 impl RetroAudioBackend {
@@ -16,12 +17,8 @@ impl RetroAudioBackend {
         Self {
             mixer,
             playing: false,
-            output: [0; 8192],
+            output: [0; 4096],
         }
-    }
-
-    pub fn mix(&mut self) {
-        self.mixer.mix(&mut self.output);
     }
 }
 
@@ -80,6 +77,23 @@ impl AudioBackend for RetroAudioBackend {
 
     fn get_sound_peak(&mut self, instance: SoundInstanceHandle) -> Option<[f32; 2]> {
         self.mixer.get_sound_peak(instance)
+    }
+
+    fn is_loading_complete(&self) -> bool {
+        true
+    }
+
+    fn tick(&mut self) {
+
+        self.mixer.mix(&mut self.output);
+    }
+
+    fn set_frame_rate(&mut self, _frame_rate: f64) {
+
+    }
+
+    fn position_resolution(&self) -> Option<Duration> {
+        None
     }
 
     fn volume(&self) -> f32 {
