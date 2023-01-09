@@ -344,7 +344,7 @@ impl Ruffle {
                 &av_info.geometry,
             ))?),
             RETRO_HW_CONTEXT_VULKAN => builder.with_renderer({
-                let negotiation = VulkanContextNegotiationInterface::instance()?; 
+                let negotiation = VulkanContextNegotiationInterface::get_instance()?;
                 VulkanWgpuRenderBackend::new(environ_cb, negotiation, &av_info.geometry)?
             }),
             other => Err(UnsupportedHardwareContext(other))?,
