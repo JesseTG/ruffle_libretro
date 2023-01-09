@@ -21,6 +21,7 @@ use crate::backend::render::vulkan::context::{
     RetroVulkanCreatedContext, RetroVulkanInitialContext,
 };
 use crate::backend::render::vulkan::util;
+use crate::backend::render::vulkan::util::PropertiesFormat;
 use crate::built_info;
 
 #[derive(ThisError, Debug)]
