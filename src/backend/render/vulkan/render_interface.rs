@@ -3,21 +3,21 @@ use std::mem::transmute;
 use std::ptr;
 
 use ash::{
-    Entry,
-    Instance,
-    vk, vk::{Semaphore, StaticFn},
+    vk,
+    vk::{Semaphore, StaticFn},
+    Entry, Instance,
 };
 use rust_libretro::environment;
-use rust_libretro_sys::{
-    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE, retro_environment_t, retro_hw_render_interface_vulkan,
-    retro_vulkan_image,
-};
 use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
+use rust_libretro_sys::{
+    retro_environment_t, retro_hw_render_interface_vulkan, retro_vulkan_image,
+    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
+};
 
-use crate::backend::render::HardwareRenderError;
-use crate::backend::render::HardwareRenderError::*;
 use crate::backend::render::vulkan::context::RetroVulkanCreatedContext;
 use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
+use crate::backend::render::HardwareRenderError;
+use crate::backend::render::HardwareRenderError::*;
 
 pub struct VulkanRenderInterface {
     // We don't own this
@@ -46,21 +46,23 @@ impl VulkanRenderInterface {
                 _ => Err(FailedToGetRenderInterface(RETRO_HW_RENDER_INTERFACE_VULKAN))?,
             };
 
-            let get_instance_proc_addr = (*interface).get_instance_proc_addr.unwrap();
-            let instance = (*interface).instance;
-            let static_fn = StaticFn::load(|sym| {
-                let fun = get_instance_proc_addr(instance, sym.as_ptr());
-                fun.unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null())) as *const c_void
-            });
-
-            let entry = Entry::from_static_fn(static_fn);
-            let instance = Instance::load(entry.static_fn(), instance);
             let created_context = match negotiation_interface.created_context.as_ref() {
                 Some(created_context) => created_context.clone(),
                 None => {
                     // The context negotiation interface didn't create a device,
                     // so we'll create a wrapper around the device that the render interface gave us
+                    let instance = (*interface).instance;
+                    let get_instance_proc_addr = (*interface).get_instance_proc_addr.unwrap();
+                    let static_fn = StaticFn::load(|sym| {
+                        let fun = get_instance_proc_addr(instance, sym.as_ptr());
+                        fun.unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null()))
+                            as *const c_void
+                    });
+
+                    let entry = Entry::from_static_fn(static_fn);
+                    let instance = Instance::load(entry.static_fn(), instance);
                     let device = ash::Device::load(instance.fp_v1_0(), (*interface).device);
+
                     RetroVulkanCreatedContext {
                         entry,
                         instance,
