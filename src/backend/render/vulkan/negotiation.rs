@@ -97,6 +97,8 @@ impl VulkanContextNegotiationInterface {
                     ))
                     .build();
 
+                // I'd like to be able to use VulkanHalInstance here to get the extensions,
+                // but that requires an ash::Entry, and Vulkan hasn't been loaded yet.
                 let flags = if cfg!(debug_assertions) {
                     InstanceFlags::VALIDATION | InstanceFlags::DEBUG
                 } else {
