@@ -216,6 +216,19 @@ impl StorageBackend for RetroVfsStorageBackend {
         }
     }
 
+    fn get_size(&self, name: &str) -> Option<usize> {
+        let vfs = self.vfs.get()?;
+        let name = CString::new(name).ok()?;
+        let size = 0i32;
+
+        if unsafe { vfs.stat?(name.as_ptr(), &size as *const _ as *mut i32) } > 0 {
+            // If the file was found and its size successfully queried...
+            Some(size as usize)
+        } else {
+            None
+        }
+    }
+
     fn remove_key(&mut self, name: &str) {
         let path = self.get_shared_object_path(name);
         if !Self::is_path_allowed(&path) {
