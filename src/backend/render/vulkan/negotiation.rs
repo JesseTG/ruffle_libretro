@@ -167,7 +167,6 @@ impl VulkanContextNegotiationInterface {
         if log_enabled!(log::Level::Debug) {
             match initial_context.entry.enumerate_instance_extension_properties(None) {
                 Ok(extensions) => {
-                    let extensions = extensions.iter().map(|e| CStr::from_ptr(e.extension_name.as_ptr()));
                     debug!("Available instance extensions: {extensions:#?}");
                 }
                 Err(error) => {
