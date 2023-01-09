@@ -7,15 +7,15 @@ use ash::extensions::khr::Surface;
 use ash::prelude::VkResult;
 use ash::vk;
 use ash::vk::{
-    DeviceCreateInfo, DeviceQueueCreateInfo, PFN_vkGetInstanceProcAddr, PhysicalDeviceFeatures,
-    QueueFamilyProperties, QueueFlags, StaticFn,
+    DeviceCreateInfo, DeviceQueueCreateInfo, PFN_vkGetInstanceProcAddr, PhysicalDeviceFeatures, QueueFamilyProperties,
+    QueueFlags, StaticFn,
 };
 use log::{debug, info, log_enabled, warn};
 use ruffle_render_wgpu::descriptors::Descriptors;
 use rust_libretro_sys::vulkan::VkPhysicalDevice;
 use thiserror::Error as ThisError;
-use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice, UpdateAfterBindTypes};
 use wgpu_hal::api::Vulkan;
+use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice, UpdateAfterBindTypes};
 
 use crate::backend::render::required_limits;
 use crate::backend::render::vulkan::context::ContextConversionError::FailedToExposePhysicalDevice;
@@ -24,7 +24,7 @@ use crate::backend::render::vulkan::negotiation::VulkanNegotiationError::{
     NoAcceptablePhysicalDevice, NoAcceptableQueueFamily, NoPhysicalDevicesFound,
 };
 use crate::backend::render::vulkan::util;
-use crate::backend::render::vulkan::util::{Names, physical_device_features_any, QueueFamilies, Queues};
+use crate::backend::render::vulkan::util::{physical_device_features_any, Names, QueueFamilies, Queues};
 use crate::backend::render::vulkan::VulkanRenderBackendError::VulkanError;
 
 pub type VulkanHalInstance = <Vulkan as Api>::Instance;
@@ -181,8 +181,8 @@ impl RetroVulkanInitialContext {
                 if !self.required_device_extensions.supported_by(&extensions) {
                     return None;
                 }
-            },
-            Err(error) => return Some(Err(error))
+            }
+            Err(error) => return Some(Err(error)),
         };
 
         if physical_device_features_any(self.required_features) {
@@ -204,8 +204,7 @@ impl RetroVulkanInitialContext {
 
         if required_families_supported {
             Some(Ok(physical_device))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -252,7 +251,9 @@ impl RetroVulkanCreatedContext {
         );
 
         if log_enabled!(log::Level::Info) {
-            let available_device_extensions = initial_context.instance.enumerate_device_extension_properties(physical_device)?;
+            let available_device_extensions = initial_context
+                .instance
+                .enumerate_device_extension_properties(physical_device)?;
             info!("Available extensions for this device: {available_device_extensions:#?}");
         }
 
