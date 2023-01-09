@@ -123,6 +123,13 @@ impl RetroVulkanInitialContext {
             Some(Surface::new(&entry, &instance))
         };
 
+        let mut required_device_extensions =
+            Names::from_raw_parts(required_device_extensions, num_required_device_extensions);
+
+        required_device_extensions
+            .add_str("VK_KHR_sampler_mirror_clamp_to_edge")
+            .add_cstr(vk::KhrTimelineSemaphoreFn::name());
+
         Ok(Self {
             entry,
             instance,
@@ -133,10 +140,7 @@ impl RetroVulkanInitialContext {
             },
             surface_fn,
             surface,
-            required_device_extensions: Names::from_raw_parts(
-                required_device_extensions,
-                num_required_device_extensions,
-            ),
+            required_device_extensions,
             required_device_layers: Names::from_raw_parts(required_device_layers, num_required_device_layers),
             required_features: if required_features.is_null() {
                 PhysicalDeviceFeatures::default()
