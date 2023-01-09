@@ -91,7 +91,7 @@ impl RetroVulkanInitialContext {
         instance: vk::Instance,
         gpu: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
-        get_instance_proc_addr: PFN_vkGetInstanceProcAddr,
+        get_instance_proc_addr: Option<PFN_vkGetInstanceProcAddr>,
         required_device_extensions: *mut *const c_char,
         num_required_device_extensions: c_uint,
         required_device_layers: *mut *const c_char,
@@ -102,11 +102,11 @@ impl RetroVulkanInitialContext {
             Err("Frontend called create_device without a valid VkInstance")?
         }
 
-        if get_instance_proc_addr as usize == 0 {
+        if get_instance_proc_addr.is_none() {
             Err("Frontend called create_device with a null PFN_vkGetInstanceProcAddr")?
         }
         let load_symbols = |sym: &CStr| {
-            let fun = get_instance_proc_addr(instance, sym.as_ptr());
+            let fun = (get_instance_proc_addr.unwrap())(instance, sym.as_ptr());
             fun.unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null())) as *const c_void
         };
 

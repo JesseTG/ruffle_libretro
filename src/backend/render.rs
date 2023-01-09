@@ -182,7 +182,7 @@ fn required_limits(adapter: &wgpu::Adapter) -> (wgpu::Limits, wgpu::Features) {
         adapter.limits().max_storage_buffers_per_shader_stage;
     limits.max_storage_buffer_binding_size = adapter.limits().max_storage_buffer_binding_size;
 
-    let features = wgpu::Features::DEPTH24PLUS_STENCIL8;
+    let features = wgpu::Features::DEPTH32FLOAT_STENCIL8;
 
     (limits, features)
 }

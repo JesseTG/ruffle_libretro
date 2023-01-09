@@ -14,7 +14,7 @@ arboard = "3.2.0"
 ash = "0.37.1"
 bytemuck = { version = "1.12.3", features = ["derive"] }
 futures = "0.3.25"
-gc-arena = { git = "https://github.com/ruffle-rs/gc-arena" }
+gc-arena = { git = "https://github.com/kyren/gc-arena", rev = "318b2ea594dcdadd01f7789025e3b3940be96b2c" }
 glow = "0.11.2"
 isahc = "1.7.2"
 libc = "0.2.139"
@@ -24,15 +24,16 @@ ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", features = ["tess
 ruffle_video = { git = "https://github.com/ruffle-rs/ruffle" }
 ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle" }
 ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", features = ["clap"] }
-rust-libretro = { git = "https://github.com/JesseTG/rust-libretro", branch = "jtg/vulkan", features = ["log", "vulkan", "unstable-env-commands"] }
-rust-libretro-sys = { git = "https://github.com/JesseTG/rust-libretro", branch = "jtg/vulkan", features = ["vulkan"] }
+rust-libretro = { git = "https://github.com/max-m/rust-libretro", branch = "vulkan", features = ["log", "vulkan", "unstable-env-commands"] }
+rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", branch = "vulkan", features = ["vulkan"] }
 tap = "1.0.1"
 thiserror = "1.0.38"
 url = "2.3.1"
 webbrowser = "0.8.2"
-wgpu = { version = "0.14.2", features = ["angle"] }
-wgpu-hal = { version = "0.14.1", features = ["gles", "vulkan"] }
-wgpu-types = "0.14.1"
+wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "630c12fe47a7bc0dc9ec6217f3903ec6fd6e3fac", features = ["angle"] }
+wgpu-core = { git = "https://github.com/gfx-rs/wgpu", rev = "630c12fe47a7bc0dc9ec6217f3903ec6fd6e3fac" }
+wgpu-hal = { git = "https://github.com/gfx-rs/wgpu", rev = "630c12fe47a7bc0dc9ec6217f3903ec6fd6e3fac", features = ["gles", "vulkan"] }
+wgpu-types = { git = "https://github.com/gfx-rs/wgpu", rev = "630c12fe47a7bc0dc9ec6217f3903ec6fd6e3fac" }
 
 [build-dependencies]
 built = "0.5"

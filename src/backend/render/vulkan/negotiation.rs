@@ -115,7 +115,7 @@ impl VulkanContextNegotiationInterface {
         instance: vk::Instance,
         gpu: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
-        get_instance_proc_addr: PFN_vkGetInstanceProcAddr,
+        get_instance_proc_addr: Option<PFN_vkGetInstanceProcAddr>,
         required_device_extensions: *mut *const c_char,
         num_required_device_extensions: c_uint,
         required_device_layers: *mut *const c_char,

@@ -46,7 +46,7 @@ impl VulkanRenderInterface {
                 _ => Err(FailedToGetRenderInterface(RETRO_HW_RENDER_INTERFACE_VULKAN))?,
             };
 
-            let get_instance_proc_addr = (*interface).get_instance_proc_addr;
+            let get_instance_proc_addr = (*interface).get_instance_proc_addr.unwrap();
             let instance = (*interface).instance;
             let static_fn = StaticFn::load(|sym| {
                 let fun = get_instance_proc_addr(instance, sym.as_ptr());

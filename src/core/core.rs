@@ -309,7 +309,7 @@ impl Core for Ruffle {
         };
     }
 
-    fn on_hw_context_destroyed(&mut self) {}
+    fn on_hw_context_destroyed(&mut self, ctx: &mut GenericContext) {}
 
     fn on_core_options_update_display(&mut self) -> bool {
         todo!()
