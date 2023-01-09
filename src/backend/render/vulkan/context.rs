@@ -10,7 +10,7 @@ use ash::vk::{
     DeviceCreateInfo, DeviceQueueCreateInfo, PFN_vkGetInstanceProcAddr, PhysicalDeviceFeatures,
     QueueFamilyProperties, QueueFlags, StaticFn,
 };
-use log::{debug, info, warn};
+use log::{debug, info, log_enabled, warn};
 use ruffle_render_wgpu::descriptors::Descriptors;
 use rust_libretro_sys::vulkan::VkPhysicalDevice;
 use thiserror::Error as ThisError;
@@ -250,6 +250,11 @@ impl RetroVulkanCreatedContext {
             "Selected queue families {0} (gfx/compute) and {1} (presentation)",
             queue_families.queue_family_index, queue_families.presentation_queue_family_index
         );
+
+        if log_enabled!(log::Level::Info) {
+            let available_device_extensions = initial_context.instance.enumerate_device_extension_properties(physical_device)?;
+            info!("Available extensions for this device: {available_device_extensions:#?}");
+        }
 
         let device = Self::create_logical_device(
             &initial_context.instance,
