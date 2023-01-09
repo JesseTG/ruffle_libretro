@@ -1,10 +1,10 @@
-use std::error::Error;
 use ash::vk;
+use ash::vk::{ExtensionProperties, LayerProperties};
+use std::error::Error;
 use std::ffi::{c_char, c_uint, CStr, CString};
-use std::slice::from_raw_parts;
-use ash::vk::ExtensionProperties;
-use std::intrinsics::transmute;
 use std::fmt::{Debug, Display, Formatter};
+use std::intrinsics::transmute;
+use std::slice::from_raw_parts;
 
 #[derive(Clone, Copy, Debug)]
 pub struct QueueFamilies {
@@ -58,14 +58,14 @@ impl Names {
     pub fn add_str(&mut self, name: &'static str) -> &mut Self {
         let cstring = CString::new(name).unwrap();
         self.cstring.push(cstring);
-        self.ptr.push(unsafe {self.cstring[self.cstring.len() - 1].as_ptr()});
+        self.ptr.push(unsafe { self.cstring[self.cstring.len() - 1].as_ptr() });
         self
     }
 
     pub fn add_cstr(&mut self, name: &'static CStr) -> &mut Self {
         let cstring = CString::from(name);
         self.cstring.push(cstring);
-        self.ptr.push(unsafe {self.cstring[self.cstring.len() - 1].as_ptr()});
+        self.ptr.push(unsafe { self.cstring[self.cstring.len() - 1].as_ptr() });
         self
     }
 
@@ -94,7 +94,7 @@ impl Names {
 
         let available_extensions: Vec<&CStr> = available_extensions
             .iter()
-            .map(|e| unsafe {CStr::from_ptr(e.extension_name.as_ptr())})
+            .map(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) })
             .collect();
 
         self.cstring
