@@ -47,10 +47,10 @@ type VulkanQueue = <Vulkan as Api>::Queue;
 type VulkanPhysicalDeviceInfo = ExposedAdapter<Vulkan>;
 type VulkanOpenDevice = OpenDevice<Vulkan>;
 
-pub struct VulkanContextNegotiationInterface<'a> {
+pub struct VulkanContextNegotiationInterface {
     interface: retro_hw_render_context_negotiation_interface_vulkan,
     application_info: ApplicationInfo,
-    initial_context: Option<RetroVulkanInitialContext<'a>>,
+    initial_context: Option<RetroVulkanInitialContext>,
     pub created_context: Option<RetroVulkanCreatedContext>,
 }
 
@@ -63,8 +63,8 @@ const APPLICATION_NAME: &[u8] = b"ruffle_libretro\0";
 static mut INSTANCE: Option<VulkanContextNegotiationInterface> = None;
 static ONCE: Once = Once::new();
 
-impl<'a> VulkanContextNegotiationInterface<'a> {
-    pub fn get_instance() -> Result<&'static VulkanContextNegotiationInterface<'a>, Box<dyn Error>> {
+impl VulkanContextNegotiationInterface {
+    pub fn get_instance() -> Result<&'static VulkanContextNegotiationInterface, Box<dyn Error>> {
         unsafe {
             ONCE.call_once(|| {
                 let interface = retro_hw_render_context_negotiation_interface_vulkan {
@@ -182,7 +182,7 @@ impl<'a> VulkanContextNegotiationInterface<'a> {
     }
 }
 
-impl<'a> HardwareRenderContextNegotiationInterface for VulkanContextNegotiationInterface<'a> {
+impl HardwareRenderContextNegotiationInterface for VulkanContextNegotiationInterface {
     unsafe fn get_ptr(&self) -> *const c_void {
         (&self.interface as *const _) as *const c_void
     }
@@ -192,55 +192,50 @@ impl<'a> HardwareRenderContextNegotiationInterface for VulkanContextNegotiationI
     }
 }
 
-pub struct Names<'a> {
-    pub(crate) cstring: Vec<CString>,
-    pub(crate) cstr: Vec<&'a CStr>,
-    pub(crate) ptr: Vec<*const c_char>,
+pub struct Names {
+    cstring: Vec<CString>,
+    ptr: Vec<*const c_char>,
 }
 
-impl<'a> Names<'a> {
+impl Names {
     pub unsafe fn from_raw_parts(data: *mut *const c_char, len: c_uint) -> Self {
         let ptr = from_raw_parts(data, len as usize);
 
         let cstring: Vec<CString> = ptr.iter().map(|c| CString::from(CStr::from_ptr(*c))).collect();
+        let ptr: Vec<*const c_char> = cstring.iter().map(|c| c.as_ptr()).collect();
 
-        let cstr: Vec<&CStr> = cstring.iter().map(|c| c.as_c_str()).collect();
-        let ptr: Vec<*const c_char> = cstr.iter().map(|c| c.as_ptr()).collect();
-
-        Self { cstring, cstr, ptr }
+        Self { cstring, ptr }
     }
 
     pub fn is_empty(&self) -> bool {
         self.cstring.is_empty()
     }
-}
 
-impl<'a> From<Vec<CString>> for Names<'a> {
-    fn from(value: Vec<CString>) -> Self {
-        Self {
-            cstring: value,
-            cstr: value.iter().map(|c| c.as_c_str()).collect(),
-            ptr: value.iter().map(|c| c.as_ptr()).collect(),
-        }
+    pub fn ptr_slice(&self) -> &[*const c_char] {
+        &self.ptr
     }
 }
 
-impl<'a> From<&[*const c_char]> for Names<'a> {
+impl From<Vec<CString>> for Names {
+    fn from(value: Vec<CString>) -> Self {
+        let ptr = value.iter().map(|c| c.as_ptr()).collect();
+        Self { cstring: value, ptr }
+    }
+}
+
+impl From<&[*const c_char]> for Names {
     fn from(value: &[*const c_char]) -> Self {
         let cstring: Vec<CString> = value
             .iter()
             .map(|c| unsafe { CString::from(CStr::from_ptr(*c)) })
             .collect();
+        let ptr = cstring.iter().map(|c| c.as_ptr()).collect();
 
-        Self {
-            cstring,
-            cstr: cstring.iter().map(|c| c.as_c_str()).collect(),
-            ptr: cstring.iter().map(|c| c.as_ptr()).collect(),
-        }
+        Self { cstring, ptr }
     }
 }
 
-impl<'a> Debug for Names<'a> {
+impl<'a> Debug for Names {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.cstring.iter()).finish()
     }

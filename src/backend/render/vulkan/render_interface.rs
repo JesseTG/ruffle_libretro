@@ -3,26 +3,26 @@ use std::mem::transmute;
 use std::ptr;
 
 use ash::{
-    Entry,
-    Instance,
-    vk, vk::{Semaphore, StaticFn},
+    vk,
+    vk::{Semaphore, StaticFn},
+    Entry, Instance,
 };
 use rust_libretro::environment;
-use rust_libretro_sys::{
-    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE, retro_environment_t, retro_hw_render_interface_vulkan,
-    retro_vulkan_image,
-};
 use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
+use rust_libretro_sys::{
+    retro_environment_t, retro_hw_render_interface_vulkan, retro_vulkan_image,
+    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
+};
 
+use crate::backend::render::vulkan::context::RetroVulkanCreatedContext;
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 use crate::backend::render::HardwareRenderError;
 use crate::backend::render::HardwareRenderError::*;
-use crate::backend::render::vulkan::context::{RetroVulkanCreatedContext, RetroVulkanCreatedContextWgpu};
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 
 pub struct VulkanRenderInterface {
     // We don't own this
     interface: *const retro_hw_render_interface_vulkan,
-    created_context: RetroVulkanCreatedContext
+    created_context: RetroVulkanCreatedContext,
 }
 
 impl VulkanRenderInterface {
@@ -60,8 +60,17 @@ impl VulkanRenderInterface {
                 None => {
                     // The context negotiation interface didn't create a device,
                     // so we'll create a wrapper around the device that the render interface gave us
-
-                    ash::Device::load(instance.fp_v1_0(), (*interface).device)
+                    let device = ash::Device::load(instance.fp_v1_0(), (*interface).device);
+                    RetroVulkanCreatedContext {
+                        entry,
+                        instance,
+                        physical_device: (*interface).gpu,
+                        device,
+                        queue: (*interface).queue,
+                        queue_family_index: (*interface).queue_index,
+                        presentation_queue: (*interface).queue,
+                        presentation_queue_family_index: (*interface).queue_index,
+                    }
                 }
             };
 
@@ -70,6 +79,10 @@ impl VulkanRenderInterface {
                 created_context,
             })
         }
+    }
+
+    pub fn created_context(&self) -> &RetroVulkanCreatedContext {
+        &self.created_context
     }
 
     pub fn set_image(

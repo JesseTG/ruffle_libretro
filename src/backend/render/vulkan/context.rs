@@ -7,8 +7,13 @@ use crate::backend::render::required_limits;
 use ash::extensions::khr::Surface;
 use ash::prelude::VkResult;
 use ash::vk;
-use ash::vk::{DeviceCreateInfo, DeviceQueueCreateInfo, KhrSurfaceFn, PFN_vkGetInstanceProcAddr, PhysicalDeviceFeatures, QueueFamilyProperties, QueueFlags, StaticFn};
+use ash::vk::{
+    DeviceCreateInfo, DeviceQueueCreateInfo, KhrSurfaceFn, PFN_vkGetInstanceProcAddr, PhysicalDeviceFeatures,
+    QueueFamilyProperties, QueueFlags, StaticFn,
+};
+use libc::open;
 use log::{info, warn};
+use ruffle_render_wgpu::descriptors::Descriptors;
 use rust_libretro_sys::retro_hw_render_interface_vulkan;
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
@@ -18,9 +23,7 @@ use crate::backend::render::vulkan::context::ContextConversionError::FailedToExp
 use crate::backend::render::vulkan::negotiation::VulkanNegotiationError::{
     NoAcceptablePhysicalDevice, NoAcceptableQueueFamily, NoPhysicalDevicesFound,
 };
-use crate::backend::render::vulkan::negotiation::{
-    physical_device_features_any, Names, VulkanNegotiationError,
-};
+use crate::backend::render::vulkan::negotiation::{physical_device_features_any, Names, VulkanNegotiationError};
 use crate::backend::render::vulkan::VulkanRenderBackendError::VulkanError;
 
 pub type VulkanHalInstance = <Vulkan as Api>::Instance;
@@ -38,14 +41,14 @@ pub enum ContextConversionError {
 }
 
 /// The Vulkan resources that were provided to [`retro_hw_render_context_negotiation_interface_vulkan`].
-pub struct RetroVulkanInitialContext<'a> {
+pub struct RetroVulkanInitialContext {
     pub entry: ash::Entry,
     pub instance: ash::Instance,
     pub physical_device: Option<vk::PhysicalDevice>,
     pub surface_fn: Option<ash::extensions::khr::Surface>,
     pub surface: Option<vk::SurfaceKHR>,
-    pub required_device_extensions: Names<'a>,
-    pub required_device_layers: Names<'a>,
+    pub required_device_extensions: Names,
+    pub required_device_layers: Names,
     pub required_features: vk::PhysicalDeviceFeatures,
 }
 
@@ -54,6 +57,8 @@ pub struct RetroVulkanInitialContext<'a> {
 /// These must not be destroyed by the core.
 #[derive(Clone)]
 pub struct RetroVulkanCreatedContext {
+    pub entry: ash::Entry,
+    pub instance: ash::Instance,
     pub physical_device: vk::PhysicalDevice,
     pub device: ash::Device,
     pub queue: vk::Queue,
@@ -81,7 +86,7 @@ pub struct RetroVulkanCreatedContextWgpu {
     presentation_queue_family_index: u32,
 }
 
-impl<'a> RetroVulkanInitialContext<'a> {
+impl RetroVulkanInitialContext {
     pub unsafe fn new(
         instance: vk::Instance,
         gpu: vk::PhysicalDevice,
@@ -115,6 +120,12 @@ impl<'a> RetroVulkanInitialContext<'a> {
             Some(surface)
         };
 
+        let surface_fn = if surface.is_none() {
+            None
+        } else {
+            Some(Surface::new(&entry, &instance))
+        };
+
         Ok(Self {
             entry,
             instance,
@@ -123,11 +134,7 @@ impl<'a> RetroVulkanInitialContext<'a> {
             } else {
                 Some(gpu)
             },
-            surface_fn: if surface.is_none() {
-                None
-            } else {
-                Some(Surface::new(&entry, &instance))
-            },
+            surface_fn,
             surface,
             required_device_extensions: Names::from_raw_parts(
                 required_device_extensions,
@@ -250,6 +257,8 @@ impl RetroVulkanCreatedContext {
         );
 
         Ok(Self {
+            entry: initial_context.entry.clone(),
+            instance: initial_context.instance.clone(),
             physical_device,
             device,
             queue: queues.queue,
@@ -257,6 +266,83 @@ impl RetroVulkanCreatedContext {
             presentation_queue: queues.presentation_queue,
             presentation_queue_family_index: queue_families.presentation_queue_family_index,
         })
+    }
+
+    pub fn create_descriptors(&self) -> Result<Descriptors, Box<dyn Error>> {
+        let driver_api_version = self
+            .entry
+            .try_enumerate_instance_version()?
+            .unwrap_or(vk::API_VERSION_1_0);
+        // vkEnumerateInstanceVersion isn't available in Vulkan 1.0
+
+        let flags = if cfg!(debug_assertions) {
+            InstanceFlags::VALIDATION | InstanceFlags::DEBUG
+        } else {
+            InstanceFlags::empty()
+        }; // Logic taken from `VulkanHalInstance::init`
+
+        let instance_extensions = VulkanHalInstance::required_extensions(&self.entry, flags)?;
+
+        let has_nv_optimus = unsafe {
+            let instance_layers = self.entry.enumerate_instance_layer_properties()?;
+            let nv_optimus_layer = CStr::from_bytes_with_nul(b"VK_LAYER_NV_optimus\0")?;
+            instance_layers
+                .iter()
+                .any(|inst_layer| CStr::from_ptr(inst_layer.layer_name.as_ptr()) == nv_optimus_layer)
+        };
+
+        let physical_device_properties = unsafe { self.instance.get_physical_device_properties(self.physical_device) };
+        let instance = unsafe {
+            VulkanHalInstance::from_raw(
+                self.entry.clone(),
+                self.instance.clone(),
+                driver_api_version,
+                get_android_sdk_version()?,
+                instance_extensions,
+                flags,
+                has_nv_optimus,
+                None,
+                // None indicates that wgpu is *not* responsible for destroying the VkInstance
+                // (in this case, that falls on the libretro frontend)
+            )?
+        };
+
+        let adapter = instance
+            .expose_adapter(self.physical_device)
+            .ok_or(FailedToExposePhysicalDevice(self.physical_device))?;
+
+        let uab_types =
+            UpdateAfterBindTypes::from_limits(&adapter.capabilities.limits, &physical_device_properties.limits);
+
+        let open_device = unsafe {
+            let device_extensions = adapter.adapter.required_device_extensions(adapter.features);
+            adapter.adapter.device_from_raw(
+                self.device.clone(),
+                false,
+                &device_extensions,
+                adapter.features,
+                uab_types,
+                self.queue_family_index,
+                0, // wgpu assumes this to be 0
+            )?
+        };
+
+        let instance = unsafe { wgpu::Instance::from_hal::<Vulkan>(instance) };
+        let adapter = unsafe { instance.create_adapter_from_hal(adapter) };
+        let (limits, features) = required_limits(&adapter);
+        let (device, queue) = unsafe {
+            adapter.create_device_from_hal(
+                open_device,
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    features,
+                    limits,
+                },
+                None,
+            )?
+        };
+
+        Ok(Descriptors::new(adapter, device, queue))
     }
 
     fn physical_device_features_any(features: vk::PhysicalDeviceFeatures) -> bool {
@@ -357,7 +443,7 @@ impl RetroVulkanCreatedContext {
         enabled_extensions: &Names,
         enabled_layers: &Names,
         enabled_features: &vk::PhysicalDeviceFeatures,
-    ) -> Result<ash::Device, VulkanNegotiationError> {
+    ) -> Result<ash::Device, Box<dyn Error>> {
         let queue_create_info = DeviceQueueCreateInfo::builder()
             .queue_family_index(queue_families.queue_family_index)
             .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.
@@ -382,20 +468,20 @@ impl RetroVulkanCreatedContext {
         let device_create_info = DeviceCreateInfo::builder()
             .queue_create_infos(queue_create_infos)
             .enabled_features(enabled_features)
-            .enabled_extension_names(&enabled_extensions.ptr)
-            .enabled_layer_names(&enabled_layers.ptr)
+            .enabled_extension_names(enabled_extensions.ptr_slice())
+            .enabled_layer_names(enabled_layers.ptr_slice())
             // .flags(DeviceCreateFlags) VkDeviceCreateFlags is empty, currently reserved
             .build();
 
-        unsafe {
-            let instance = instance.shared_instance().raw_instance();
-            let vk_physical_device = physical_device.adapter.raw_physical_device();
-            let vk_device = instance
-                .create_device(vk_physical_device, &device_create_info, None)
-                .map_err(|error| VulkanError("vkCreateDevice", error))?;
+        unsafe { Ok(instance.create_device(physical_device, &device_create_info, None)?) }
+    }
+}
 
-            todo!()
-        }
+impl TryFrom<&RetroVulkanCreatedContext> for RetroVulkanCreatedContextWgpuHal {
+    type Error = Box<dyn Error>;
+
+    fn try_from(value: &RetroVulkanCreatedContext) -> Result<Self, Self::Error> {
+        todo!()
     }
 }
 
@@ -487,32 +573,6 @@ impl TryFrom<&RetroVulkanContextAsh> for RetroVulkanInitialContextWgpuHal {
             instance,
             adapter,
             open_device,
-            presentation_queue: value.presentation_queue,
-            presentation_queue_family_index: value.presentation_queue_family_index,
-        })
-    }
-}
-
-impl TryFrom<RetroVulkanInitialContextWgpuHal> for RetroVulkanContextWgpu {
-    type Error = Box<dyn Error>;
-
-    fn try_from(value: RetroVulkanInitialContextWgpuHal) -> Result<Self, Self::Error> {
-        let instance = unsafe { wgpu::Instance::from_hal::<Vulkan>(value.instance) };
-        let adapter = unsafe { instance.create_adapter_from_hal(value.adapter) };
-        let (device, queue) = unsafe {
-            let (limits, features) = required_limits(&adapter);
-            let descriptor = &wgpu::DeviceDescriptor {
-                label: None,
-                features,
-                limits,
-            };
-            adapter.create_device_from_hal(value.open_device, descriptor, None)?
-        };
-        Ok(Self {
-            instance,
-            adapter,
-            device,
-            queue,
             presentation_queue: value.presentation_queue,
             presentation_queue_family_index: value.presentation_queue_family_index,
         })

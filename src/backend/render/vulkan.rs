@@ -5,6 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::backend::render::required_limits;
+use crate::backend::render::vulkan::context::RetroVulkanCreatedContextWgpu;
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 use ash::vk;
 use ash::vk::{
     Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceRange, ImageViewCreateInfo, ImageViewType,
@@ -24,13 +26,12 @@ use rust_libretro_sys::{retro_environment_t, retro_game_geometry, retro_vulkan_i
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan as VulkanApi;
 use wgpu_hal::{Api, InstanceFlags};
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
+mod context;
 pub mod negotiation;
 pub mod render_interface;
-mod context;
 
 #[derive(ThisError, Debug)]
 pub enum VulkanRenderBackendError {
@@ -46,15 +47,17 @@ pub struct VulkanWgpuRenderBackend {
 }
 
 impl VulkanWgpuRenderBackend {
-    pub fn new(environ_cb: retro_environment_t, negotiation: &VulkanContextNegotiationInterface, geometry: &retro_game_geometry) -> Result<Self, Box<dyn Error>> {
-
+    pub fn new(
+        environ_cb: retro_environment_t,
+        negotiation: &VulkanContextNegotiationInterface,
+        geometry: &retro_game_geometry,
+    ) -> Result<Self, Box<dyn Error>> {
         let interface = VulkanRenderInterface::new(environ_cb, negotiation)?;
-        let context = interface.get_wgpu_context();
-
-        let descriptors = Arc::new(Descriptors::new(context.adapter, context.device, context.queue));
+        let context = interface.created_context();
+        let descriptors = context.create_descriptors()?;
         let (width, height) = (geometry.base_width, geometry.base_height);
         let target = TextureTarget::new(&descriptors.device, (width, height))?;
-
+        let descriptors = Arc::new(descriptors);
         // Create a VkImage that will be used to render the emulator's output.
         // Don't free it manually, it belongs to wgpu!
         let image = unsafe {
@@ -167,7 +170,7 @@ impl RenderBackend for VulkanWgpuRenderBackend {
 impl Drop for VulkanWgpuRenderBackend {
     fn drop(&mut self) {
         unsafe {
-            self.interface.device.destroy_image_view(self.image.image_view, None);
+            self.interface.created_context().device.destroy_image_view(self.image.image_view, None);
         } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did.
 
         // Also, don't destroy self.device or self.instance;
