@@ -203,7 +203,10 @@ impl Core for Ruffle {
         Ok(())
     }
 
-    fn on_unload_game(&mut self, _ctx: &mut UnloadGameContext) {}
+    fn on_unload_game(&mut self, _ctx: &mut UnloadGameContext) {
+        // TODO: Call vfs_flush
+        self.player = Uninitialized;
+    }
 
     fn on_options_changed(&mut self, ctx: &mut OptionsChangedContext) {
         self.config.autoplay = match ctx.get_variable("ruffle_autoplay") {
