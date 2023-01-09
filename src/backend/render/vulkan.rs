@@ -83,7 +83,7 @@ impl VulkanWgpuRenderBackend {
 
         let image = retro_vulkan_image {
             image_view,
-            image_layout: ImageLayout::GENERAL,
+            image_layout: ImageLayout::TRANSFER_DST_OPTIMAL,
             create_info,
         };
 
