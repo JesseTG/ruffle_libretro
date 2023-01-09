@@ -4,7 +4,7 @@ use std::ffi::{c_char, c_uint, CStr, CString};
 use std::slice::from_raw_parts;
 use ash::vk::ExtensionProperties;
 use std::intrinsics::transmute;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Clone, Copy, Debug)]
 pub struct QueueFamilies {
@@ -53,6 +53,12 @@ impl Names {
         let ptr: Vec<*const c_char> = cstring.iter().map(|c| c.as_ptr()).collect();
 
         Self { cstring, ptr }
+    }
+
+    pub fn add_str(&mut self, name: &'static str) {
+        let cstring = CString::new(name).unwrap();
+        self.cstring.push(cstring);
+        self.ptr.push(unsafe {self.cstring[self.cstring.len() - 1].as_ptr()});
     }
 
     pub fn is_empty(&self) -> bool {
