@@ -55,7 +55,7 @@ pub struct VulkanContextNegotiationInterface {
     application_info: ApplicationInfo,
     initial_context: Option<RetroVulkanInitialContext>,
     pub created_context: Option<RetroVulkanCreatedContext>,
-    required_instance_extensions: Vec<*const c_char>,
+    required_instance_extensions: Vec<&'static CStr>,
 }
 
 /// This MUST be kept as a constant, and must *not* be given to a CString.
@@ -109,11 +109,9 @@ impl VulkanContextNegotiationInterface {
                     vk::ExtSwapchainColorspaceFn::name(),
                 ];
 
-                if flags.contains(crate::InstanceFlags::DEBUG) {
-                    extensions.push(ext::DebugUtils::name());
+                if flags.contains(InstanceFlags::DEBUG) {
+                    required_instance_extensions.push(ext::DebugUtils::name());
                 } // Logic taken from `VulkanHalInstance::required_extensions`
-
-                let required_instance_extensions = required_instance_extensions.iter().map(|e| e.as_ptr()).collect();
 
                 INSTANCE = Some(VulkanContextNegotiationInterface {
                     interface,
@@ -136,14 +134,11 @@ impl VulkanContextNegotiationInterface {
         let interface = INSTANCE.as_mut().unwrap();
         let required_instance_extensions = &interface.required_instance_extensions;
 
-        if log_enabled!(log::Level::Debug) {
-            let required_instance_extensions: Vec<&CStr> = required_instance_extensions
-                .iter()
-                .map(|e| CStr::from_ptr(*e))
-                .collect();
-
-            debug!("Instance extensions required by wgpu: {required_instance_extensions:#?}");
-        }
+        debug!("Instance extensions required by wgpu: {required_instance_extensions:#?}");
+        let required_instance_extensions: Vec<*const c_char> = required_instance_extensions
+            .iter()
+            .map(|e| e.as_ptr())
+            .collect();
 
         required_instance_extensions.as_ptr()
     }
