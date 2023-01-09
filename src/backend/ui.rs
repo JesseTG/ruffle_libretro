@@ -60,7 +60,7 @@ impl UiBackend for RetroUiBackend {
         unsafe {
             environment::set_message_ext(
                 self.environment.get(),
-                DOWNLOAD_FAILED_MESSAGE,
+                UNSUPPORTED_CONTENT_MESSAGE,
                 3000,
                 0,
                 retro_log_level::RETRO_LOG_WARN,
@@ -75,7 +75,7 @@ impl UiBackend for RetroUiBackend {
         unsafe {
             environment::set_message_ext(
                 self.environment.get(),
-                "Ruffle failed to open or download this file.",
+                DOWNLOAD_FAILED_MESSAGE,
                 3000,
                 0,
                 retro_log_level::RETRO_LOG_WARN,
