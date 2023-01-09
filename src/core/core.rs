@@ -97,7 +97,14 @@ impl Core for Ruffle {
         });
     }
 
-    fn on_init(&mut self, _ctx: &mut InitContext) {}
+    fn on_init(&mut self, ctx: &mut InitContext) {
+        let ctx = GenericContext::from(ctx);
+
+        self.threaded_audio = ctx.enable_audio_callback();
+        if !self.threaded_audio {
+            warn!("Failed to enable threaded audio");
+        }
+    }
 
     fn on_deinit(&mut self, _ctx: &mut DeinitContext) {}
 
