@@ -16,16 +16,18 @@ use ruffle_core::{LoadBehavior, Player, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_video_software::backend::SoftwareVideoBackend;
 use rust_libretro::contexts::*;
-use rust_libretro::core::Core;
-use rust_libretro::environment;
+use rust_libretro::core::{Core, CoreOptions};
 use rust_libretro::environment::get_save_directory;
 use rust_libretro::sys::retro_hw_context_type::*;
 use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
+use rust_libretro::{environment, input_descriptors};
 
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::render::opengl::OpenGlWgpuRenderBackend;
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
+use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 use crate::backend::render::vulkan::VulkanWgpuRenderBackend;
 use crate::backend::render::HardwareRenderCallback;
 use crate::backend::render::HardwareRenderContextNegotiationInterface;
@@ -34,11 +36,19 @@ use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
 use crate::core::state::PlayerState::{Active, Pending, Uninitialized};
-use crate::core::Ruffle;
+use crate::core::{input, Ruffle};
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
 use crate::{backend, built_info, util};
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
-use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
+use thiserror::Error as ThisError;
+
+#[derive(ThisError, Debug)]
+pub enum CoreError {
+    #[error("Pixel format {0:?} unsupported by frontend")]
+    UnsupportedPixelFormat(PixelFormat),
+
+    #[error("Failed to set input descriptors")]
+    FailedToSetInputDescriptors,
+}
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -116,18 +126,21 @@ impl Core for Ruffle {
         todo!()
     }
 
-    fn on_run(&mut self, ctx: &mut RunContext, _delta_us: Option<i64>) {
-        if let Active(player) = &self.player {
+    fn on_run(&mut self, ctx: &mut RunContext, delta_us: Option<i64>) {
+        if let (Active(player), Some(delta)) = (&self.player, delta_us) {
             ctx.poll_input();
+            let input_device_capabilities = ctx.get_input_device_capabilities();
             // TODO: Handle input
-            ctx.get_joypad_state(0, 0);
+            let joypad_state = ctx.get_joypad_state(0, 0);
             let mut player = player.lock().unwrap();
             let player = player.deref_mut();
 
-            player.run_frame();
-            player.render();
+            player.tick(delta as f64);
 
-            // TODO: Write out audio
+            if player.needs_render() {
+                player.render();
+            }
+
             // TODO: React to changed settings
         }
 
@@ -136,6 +149,16 @@ impl Core for Ruffle {
     }
 
     fn on_load_game(&mut self, game: Option<retro_game_info>, ctx: &mut LoadGameContext) -> Result<(), Box<dyn Error>> {
+        if !ctx.set_pixel_format(PixelFormat::XRGB8888) {
+            Err(CoreError::UnsupportedPixelFormat(PixelFormat::XRGB8888))?
+        }
+        ctx.enable_frame_time_callback((1000000.0f64 / 60.0).round() as retro_usec_t);
+
+        let ctx = GenericContext::from(ctx);
+        if !ctx.set_input_descriptors(input::INPUT_DESCRIPTORS) {
+            Err(CoreError::FailedToSetInputDescriptors)?
+        }
+
         let game = game.ok_or("No game was provided")?;
         let buffer = unsafe { from_raw_parts(game.data as *const u8, game.size as usize) };
         let movie = SwfMovie::from_data(buffer, None, None)?;
@@ -144,10 +167,6 @@ impl Core for Ruffle {
             height: movie.height().to_pixels().round() as u32,
             scale_factor: 1.0f64, // TODO: figure this out
         };
-
-        if !ctx.set_pixel_format(PixelFormat::XRGB8888) {
-            return Err("RETRO_PIXEL_FORMAT_XRGB8888 not supported by this frontend".into());
-        }
 
         let environ_cb = self.environ_cb.get();
         let preferred_renderer = backend::render::get_preferred_hw_render(environ_cb)?;
@@ -291,9 +310,35 @@ impl Core for Ruffle {
         // TODO: Add these events to a queue, then give them all to the emulator in the main loop
     }
 
-    fn on_write_audio(&mut self, _ctx: &mut AudioContext) {}
+    fn on_write_audio(&mut self, ctx: &mut AudioContext) {
+        if let Active(player) = &self.player {
+            let mut player = player.lock().unwrap();
+            let player = player.deref_mut();
 
-    fn on_hw_context_reset(&mut self) {
+            let audio = player.audio_mut();
+            let samples = audio.get_sample_history();
+
+            let resampled_samples: [i16; 2048] = [0; 2048];
+            ctx.batch_audio_samples(&resampled_samples);
+        }
+    }
+
+    fn on_audio_set_state(&mut self, enabled: bool) {
+        if let Active(player) = &self.player {
+            let mut player = player.lock().unwrap();
+            let player = player.deref_mut();
+
+            if enabled {
+                player.audio_mut().play();
+            } else {
+                player.audio_mut().pause();
+            }
+        } else {
+            warn!("on_audio_set_state({enabled}) called before player was ready");
+        }
+    }
+
+    fn on_hw_context_reset(&mut self, context: &mut GenericContext) {
         match &self.player {
             Active(player) => {
                 // Game is already running
