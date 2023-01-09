@@ -1,13 +1,11 @@
 use std::error::Error;
-use std::ffi::{c_char, c_uint, c_void, CStr, CString};
-use std::fmt::{Debug, Formatter};
-use std::mem::transmute;
-use std::slice::from_raw_parts;
+use std::ffi::{c_char, c_uint, c_void, CStr};
+use std::fmt::Debug;
 use std::sync::Once;
 
 use ash::extensions::{ext, khr};
 use ash::vk;
-use ash::vk::{ApplicationInfo, ExtensionProperties, PFN_vkGetInstanceProcAddr};
+use ash::vk::{ApplicationInfo, PFN_vkGetInstanceProcAddr};
 use log::{debug, error, info, log_enabled, warn};
 use rust_libretro_sys::{
     retro_hw_render_context_negotiation_interface_type, retro_hw_render_context_negotiation_interface_vulkan,
@@ -22,7 +20,7 @@ use crate::backend::render::HardwareRenderContextNegotiationInterface;
 use crate::backend::render::vulkan::context::{
     RetroVulkanCreatedContext, RetroVulkanInitialContext,
 };
-use crate::backend::render::vulkan::negotiation::VulkanNegotiationError::*;
+use crate::backend::render::vulkan::util;
 use crate::built_info;
 
 #[derive(ThisError, Debug)]
@@ -229,7 +227,7 @@ impl VulkanContextNegotiationInterface {
             warn!("Please file a bug");
         }
 
-        if physical_device_features_any(initial_context.required_features) {
+        if util::physical_device_features_any(initial_context.required_features) {
             warn!("Frontend requested some VkPhysicalDeviceFeatures, but this core doesn't check for them yet");
             warn!("Please file a bug");
             warn!("The features in question: {required_features:?}");
@@ -268,84 +266,4 @@ impl HardwareRenderContextNegotiationInterface for VulkanContextNegotiationInter
     fn r#type(&self) -> retro_hw_render_context_negotiation_interface_type {
         RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN
     }
-}
-
-pub struct Names {
-    cstring: Vec<CString>,
-    ptr: Vec<*const c_char>,
-}
-
-impl Names {
-    pub unsafe fn from_raw_parts(data: *mut *const c_char, len: c_uint) -> Self {
-        let ptr = from_raw_parts(data, len as usize);
-
-        let cstring: Vec<CString> = ptr.iter().map(|c| CString::from(CStr::from_ptr(*c))).collect();
-        let ptr: Vec<*const c_char> = cstring.iter().map(|c| c.as_ptr()).collect();
-
-        Self { cstring, ptr }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.cstring.is_empty()
-    }
-
-    pub fn ptr_slice(&self) -> &[*const c_char] {
-        &self.ptr
-    }
-
-    /// Returns true if the provided extension properties include all of this object's names
-    pub fn supported_by(&self, available_extensions: &[ExtensionProperties]) -> bool {
-        if available_extensions.is_empty() {
-            // If no extensions are available, then any requirements listed by this Names
-            // won't be met (unless it's empty).
-            return self.cstring.is_empty();
-        }
-
-        if self.cstring.is_empty() {
-            // But if there *are* available extensions
-            // and this Names doesn't ask for any,
-            // then we're good.
-            return true;
-        }
-
-        let available_extensions: Vec<&CStr> = available_extensions
-            .iter()
-            .map(|e| unsafe {CStr::from_ptr(e.extension_name.as_ptr())})
-            .collect();
-
-        self.cstring
-            .iter()
-            .all(|n| available_extensions.contains(&n.as_c_str()))
-    }
-}
-
-impl From<Vec<CString>> for Names {
-    fn from(value: Vec<CString>) -> Self {
-        let ptr = value.iter().map(|c| c.as_ptr()).collect();
-        Self { cstring: value, ptr }
-    }
-}
-
-impl From<&[*const c_char]> for Names {
-    fn from(value: &[*const c_char]) -> Self {
-        let cstring: Vec<CString> = value
-            .iter()
-            .map(|c| unsafe { CString::from(CStr::from_ptr(*c)) })
-            .collect();
-        let ptr = cstring.iter().map(|c| c.as_ptr()).collect();
-
-        Self { cstring, ptr }
-    }
-}
-
-impl<'a> Debug for Names {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_list().entries(self.cstring.iter()).finish()
-    }
-}
-
-pub fn physical_device_features_any(features: vk::PhysicalDeviceFeatures) -> bool {
-    let features: [vk::Bool32; 55] = unsafe { transmute(features) };
-
-    features.iter().sum::<vk::Bool32>() > 0
 }

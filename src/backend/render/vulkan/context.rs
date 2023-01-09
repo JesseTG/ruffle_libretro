@@ -19,10 +19,12 @@ use wgpu_hal::api::Vulkan;
 
 use crate::backend::render::required_limits;
 use crate::backend::render::vulkan::context::ContextConversionError::FailedToExposePhysicalDevice;
-use crate::backend::render::vulkan::negotiation::{Names, physical_device_features_any, VulkanNegotiationError};
+use crate::backend::render::vulkan::negotiation::VulkanNegotiationError;
 use crate::backend::render::vulkan::negotiation::VulkanNegotiationError::{
     NoAcceptablePhysicalDevice, NoAcceptableQueueFamily, NoPhysicalDevicesFound,
 };
+use crate::backend::render::vulkan::util;
+use crate::backend::render::vulkan::util::{Names, physical_device_features_any, QueueFamilies, Queues};
 use crate::backend::render::vulkan::VulkanRenderBackendError::VulkanError;
 
 pub type VulkanHalInstance = <Vulkan as Api>::Instance;
@@ -305,7 +307,7 @@ impl RetroVulkanCreatedContext {
                 self.entry.clone(),
                 self.instance.clone(),
                 driver_api_version,
-                get_android_sdk_version()?,
+                util::get_android_sdk_version()?,
                 instance_extensions,
                 flags,
                 has_nv_optimus,
@@ -491,61 +493,4 @@ impl TryFrom<&RetroVulkanCreatedContext> for RetroVulkanCreatedContextWgpuHal {
     fn try_from(value: &RetroVulkanCreatedContext) -> Result<Self, Self::Error> {
         todo!()
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct QueueFamilies {
-    pub queue_family_index: u32,
-    pub presentation_queue_family_index: u32,
-}
-
-impl QueueFamilies {
-    pub fn new(queue_family_index: u32, presentation_queue_family_index: u32) -> Self {
-        Self {
-            queue_family_index,
-            presentation_queue_family_index,
-        }
-    }
-
-    pub fn are_same(&self) -> bool {
-        self.queue_family_index == self.presentation_queue_family_index
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Queues {
-    queue: vk::Queue,
-    presentation_queue: vk::Queue,
-}
-
-impl Queues {
-    pub fn new(queue: vk::Queue, presentation_queue: vk::Queue) -> Self {
-        Self {
-            queue,
-            presentation_queue,
-        }
-    }
-}
-
-fn get_android_sdk_version() -> Result<u32, Box<dyn Error>> {
-    #[cfg(not(target_os = "android"))]
-    return Ok(0);
-
-    #[cfg(target_os = "android")]
-    return {
-        let properties = android_system_properties::AndroidSystemProperties::new();
-        // See: https://developer.android.com/reference/android/os/Build.VERSION_CODES
-        if let Some(val) = properties.get("ro.build.version.sdk") {
-            match val.parse::<u32>() {
-                Ok(sdk_ver) => sdk_ver,
-                Err(err) => {
-                    log::error!("Couldn't parse Android's ro.build.version.sdk system property ({val}): {err}");
-                    0
-                }
-            }
-        } else {
-            log::error!("Couldn't read Android's ro.build.version.sdk system property");
-            0
-        }
-    };
 }

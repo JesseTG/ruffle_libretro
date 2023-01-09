@@ -27,6 +27,7 @@ use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 mod context;
 pub mod negotiation;
 pub mod render_interface;
+mod util;
 
 #[derive(ThisError, Debug)]
 pub enum VulkanRenderBackendError {
