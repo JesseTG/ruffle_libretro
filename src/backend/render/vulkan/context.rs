@@ -24,6 +24,7 @@ use crate::backend::render::vulkan::negotiation::VulkanNegotiationError::{
     NoAcceptablePhysicalDevice, NoAcceptableQueueFamily, NoPhysicalDevicesFound,
 };
 use crate::backend::render::vulkan::util;
+use crate::backend::render::vulkan::util::PropertiesFormat;
 use crate::backend::render::vulkan::util::{physical_device_features_any, Names, QueueFamilies, Queues};
 use crate::backend::render::vulkan::VulkanRenderBackendError::VulkanError;
 
@@ -127,8 +128,9 @@ impl RetroVulkanInitialContext {
             Names::from_raw_parts(required_device_extensions, num_required_device_extensions);
 
         required_device_extensions
-            .add_str("VK_KHR_sampler_mirror_clamp_to_edge")
-            .add_cstr(vk::KhrTimelineSemaphoreFn::name());
+            .add_cstr(vk::KhrTimelineSemaphoreFn::name())
+            .add_cstr(vk::KhrMaintenance4Fn::name())
+            .add_cstr(vk::KhrSamplerMirrorClampToEdgeFn::name());
 
         Ok(Self {
             entry,
@@ -472,6 +474,18 @@ impl RetroVulkanCreatedContext {
             .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.
             .build();
 
+        let mut physical_device_vulkan_12_features = vk::PhysicalDeviceVulkan12Features::default();
+        let mut physical_device_features2 = vk::PhysicalDeviceFeatures2::builder()
+            .push_next(&mut physical_device_vulkan_12_features)
+            .build();
+
+        unsafe {
+            instance.get_physical_device_features2(physical_device, &mut physical_device_features2);
+        } // TODO: Move these extension objects to the constructor so the various initialization phases can query for them
+
+        debug!("VkPhysicalDeviceFeatures2: {physical_device_features2:#?}");
+        debug!("VkPhysicalDeviceVulkan12Features: {physical_device_vulkan_12_features:#?}");
+
         let presentation_queue_create_info = if queue_families.are_same() {
             queue_create_info
         } else {
@@ -493,6 +507,7 @@ impl RetroVulkanCreatedContext {
             .enabled_features(enabled_features)
             .enabled_extension_names(enabled_extensions.ptr_slice())
             .enabled_layer_names(enabled_layers.ptr_slice())
+            .push_next(&mut physical_device_vulkan_12_features)
             // .flags(DeviceCreateFlags) VkDeviceCreateFlags is empty, currently reserved
             .build();
 
