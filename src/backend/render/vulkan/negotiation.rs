@@ -1,3 +1,4 @@
+use ash::extensions::{ext, khr};
 use std::error::Error;
 use std::ffi::{c_char, c_uint, c_void, CStr, CString};
 use std::fmt::{Debug, Formatter};
@@ -15,9 +16,11 @@ use rust_libretro_sys::{
 };
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
-use wgpu_hal::{Api, ExposedAdapter, OpenDevice};
+use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice};
 
-use crate::backend::render::vulkan::context::{RetroVulkanCreatedContext, RetroVulkanInitialContext};
+use crate::backend::render::vulkan::context::{
+    RetroVulkanCreatedContext, RetroVulkanInitialContext, VulkanHalInstance,
+};
 use crate::backend::render::vulkan::negotiation::VulkanNegotiationError::*;
 use crate::backend::render::HardwareRenderContextNegotiationInterface;
 use crate::built_info;
@@ -52,6 +55,7 @@ pub struct VulkanContextNegotiationInterface {
     application_info: ApplicationInfo,
     initial_context: Option<RetroVulkanInitialContext>,
     pub created_context: Option<RetroVulkanCreatedContext>,
+    required_instance_extensions: Vec<*const c_char>,
 }
 
 /// This MUST be kept as a constant, and must *not* be given to a CString.
@@ -72,6 +76,8 @@ impl VulkanContextNegotiationInterface {
                     interface_version: RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
                     get_application_info: Some(Self::get_application_info),
                     create_device: Some(Self::create_device),
+                    //get_instance_extensions: Some(Self::get_instance_extensions),
+                    //get_instance_layers: None,
 
                     // No need for a destroy_device because create_device won't allocate
                     // any resources that the frontend won't deallocate itself.
@@ -91,11 +97,30 @@ impl VulkanContextNegotiationInterface {
                     ))
                     .build();
 
+                let flags = if cfg!(debug_assertions) {
+                    InstanceFlags::VALIDATION | InstanceFlags::DEBUG
+                } else {
+                    InstanceFlags::empty()
+                }; // Logic taken from `VulkanHalInstance::init`
+
+                let mut required_instance_extensions: Vec<&'static CStr> = vec![
+                    khr::Surface::name(),
+                    vk::KhrGetPhysicalDeviceProperties2Fn::name(),
+                    vk::ExtSwapchainColorspaceFn::name(),
+                ];
+
+                if flags.contains(crate::InstanceFlags::DEBUG) {
+                    extensions.push(ext::DebugUtils::name());
+                } // Logic taken from `VulkanHalInstance::required_extensions`
+
+                let required_instance_extensions = required_instance_extensions.iter().map(|e| e.as_ptr()).collect();
+
                 INSTANCE = Some(VulkanContextNegotiationInterface {
                     interface,
                     application_info,
                     initial_context: None,
                     created_context: None,
+                    required_instance_extensions,
                 })
             });
 
@@ -105,6 +130,22 @@ impl VulkanContextNegotiationInterface {
 
     unsafe extern "C" fn get_application_info() -> *const ApplicationInfo {
         &INSTANCE.as_ref().unwrap().application_info
+    }
+
+    unsafe extern "C" fn get_instance_extensions(num_instance_extensions: *mut c_uint) -> *const *const c_char {
+        let interface = INSTANCE.as_mut().unwrap();
+        let required_instance_extensions = &interface.required_instance_extensions;
+
+        if log_enabled!(log::Level::Debug) {
+            let required_instance_extensions: Vec<&CStr> = required_instance_extensions
+                .iter()
+                .map(|e| CStr::from_ptr(*e))
+                .collect();
+
+            debug!("Instance extensions required by wgpu: {required_instance_extensions:#?}");
+        }
+
+        required_instance_extensions.as_ptr()
     }
 
     /// Creates a [`vk::Device`] and assigns ownership of it to the libretro frontend,
