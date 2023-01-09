@@ -7,7 +7,7 @@ use std::slice::from_raw_parts;
 use std::sync::Once;
 
 use ash::vk;
-use ash::vk::{ApplicationInfo, PFN_vkGetInstanceProcAddr};
+use ash::vk::{ApplicationInfo, ExtensionProperties, PFN_vkGetInstanceProcAddr};
 use log::{debug, error, info, log_enabled, warn};
 use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
 use rust_libretro_sys::{
@@ -291,6 +291,31 @@ impl Names {
 
     pub fn ptr_slice(&self) -> &[*const c_char] {
         &self.ptr
+    }
+
+    /// Returns true if the provided extension properties include all of this object's names
+    pub fn supported_by(&self, available_extensions: &[ExtensionProperties]) -> bool {
+        if available_extensions.is_empty() {
+            // If no extensions are available, then any requirements listed by this Names
+            // won't be met (unless it's empty).
+            return self.cstring.is_empty();
+        }
+
+        if self.cstring.is_empty() {
+            // But if there *are* available extensions
+            // and this Names doesn't ask for any,
+            // then we're good.
+            return true;
+        }
+
+        let available_extensions: Vec<&CStr> = available_extensions
+            .iter()
+            .map(|e| unsafe {CStr::from_ptr(e.extension_name.as_ptr())})
+            .collect();
+
+        self.cstring
+            .iter()
+            .all(|n| available_extensions.contains(&n.as_c_str()))
     }
 }
 

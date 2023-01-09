@@ -12,9 +12,10 @@ use ash::vk::{
     QueueFamilyProperties, QueueFlags, StaticFn,
 };
 use libc::open;
-use log::{info, warn};
+use log::{debug, info, warn};
 use ruffle_render_wgpu::descriptors::Descriptors;
 use rust_libretro_sys::retro_hw_render_interface_vulkan;
+use rust_libretro_sys::vulkan::VkPhysicalDevice;
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
 use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice, UpdateAfterBindTypes};
@@ -163,8 +164,8 @@ impl RetroVulkanInitialContext {
 
         let available_physical_devices: Vec<vk::PhysicalDevice> = available_physical_devices
             .into_iter()
-            .filter(|device| unsafe { self.filter_physical_device(*device) })
-            .collect();
+            .filter_map(|device| unsafe { self.filter_physical_device(device) })
+            .collect::<Result<Vec<_>, _>>()?;
 
         match available_physical_devices.len() {
             0 => Err(NoAcceptablePhysicalDevice)?,
@@ -173,15 +174,20 @@ impl RetroVulkanInitialContext {
         }
     }
 
-    unsafe fn filter_physical_device(&self, physical_device: vk::PhysicalDevice) -> bool {
+    unsafe fn filter_physical_device(&self, physical_device: vk::PhysicalDevice) -> Option<VkResult<VkPhysicalDevice>> {
         // See if this VkPhysicalDevice meets the following conditions...
         info!("Evaluating VkPhysicalDevice {physical_device:?}");
 
         // A device that supports the required extensions, if we need any in particular...
-        // let extensions = self.instance.enumerate_device_extension_properties(physical_device)?;
-        // if !self.required_device_extensions.iter().all(|e| extensions.contains(e)) {
-        //     return Ok(false);
-        // }
+
+        match self.instance.enumerate_device_extension_properties(physical_device) {
+            Ok(extensions) => {
+                if !self.required_device_extensions.supported_by(&extensions) {
+                    return None;
+                }
+            },
+            Err(error) => return Some(Err(error))
+        };
 
         if physical_device_features_any(self.required_features) {
             // If the frontend requires any specific VkPhysicalDeviceFeatures...
@@ -196,9 +202,16 @@ impl RetroVulkanInitialContext {
             .instance
             .get_physical_device_queue_family_properties(physical_device);
 
-        queue_families
+        let required_families_supported = queue_families
             .iter()
-            .any(|q| q.queue_flags.contains(QueueFlags::GRAPHICS | QueueFlags::COMPUTE))
+            .any(|q| q.queue_flags.contains(QueueFlags::GRAPHICS | QueueFlags::COMPUTE));
+
+        if required_families_supported {
+            Some(Ok(physical_device))
+        }
+        else {
+            None
+        }
     }
 }
 
@@ -282,6 +295,7 @@ impl RetroVulkanCreatedContext {
         }; // Logic taken from `VulkanHalInstance::init`
 
         let instance_extensions = VulkanHalInstance::required_extensions(&self.entry, flags)?;
+        debug!("Instance extensions required by wgpu: {instance_extensions:#?}");
 
         let has_nv_optimus = unsafe {
             let instance_layers = self.entry.enumerate_instance_layer_properties()?;
