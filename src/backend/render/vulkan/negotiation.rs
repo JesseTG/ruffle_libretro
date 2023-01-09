@@ -1,4 +1,3 @@
-use ash::extensions::{ext, khr};
 use std::error::Error;
 use std::ffi::{c_char, c_uint, c_void, CStr, CString};
 use std::fmt::{Debug, Formatter};
@@ -6,23 +5,24 @@ use std::mem::transmute;
 use std::slice::from_raw_parts;
 use std::sync::Once;
 
+use ash::extensions::{ext, khr};
 use ash::vk;
 use ash::vk::{ApplicationInfo, ExtensionProperties, PFN_vkGetInstanceProcAddr};
 use log::{debug, error, info, log_enabled, warn};
-use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
 use rust_libretro_sys::{
     retro_hw_render_context_negotiation_interface_type, retro_hw_render_context_negotiation_interface_vulkan,
-    retro_vulkan_context, RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION,
+    RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN_VERSION, retro_vulkan_context,
 };
+use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
 use thiserror::Error as ThisError;
-use wgpu_hal::api::Vulkan;
 use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice};
+use wgpu_hal::api::Vulkan;
 
+use crate::backend::render::HardwareRenderContextNegotiationInterface;
 use crate::backend::render::vulkan::context::{
-    RetroVulkanCreatedContext, RetroVulkanInitialContext, VulkanHalInstance,
+    RetroVulkanCreatedContext, RetroVulkanInitialContext,
 };
 use crate::backend::render::vulkan::negotiation::VulkanNegotiationError::*;
-use crate::backend::render::HardwareRenderContextNegotiationInterface;
 use crate::built_info;
 
 #[derive(ThisError, Debug)]

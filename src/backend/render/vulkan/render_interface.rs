@@ -3,21 +3,21 @@ use std::mem::transmute;
 use std::ptr;
 
 use ash::{
-    vk,
-    vk::{Semaphore, StaticFn},
-    Entry, Instance,
+    Entry,
+    Instance,
+    vk, vk::{Semaphore, StaticFn},
 };
 use rust_libretro::environment;
-use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
 use rust_libretro_sys::{
-    retro_environment_t, retro_hw_render_interface_vulkan, retro_vulkan_image,
-    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
+    RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE, retro_environment_t, retro_hw_render_interface_vulkan,
+    retro_vulkan_image,
 };
+use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
 
-use crate::backend::render::vulkan::context::RetroVulkanCreatedContext;
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 use crate::backend::render::HardwareRenderError;
 use crate::backend::render::HardwareRenderError::*;
+use crate::backend::render::vulkan::context::RetroVulkanCreatedContext;
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 
 pub struct VulkanRenderInterface {
     // We don't own this

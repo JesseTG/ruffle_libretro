@@ -1,4 +1,3 @@
-use futures::executor::block_on;
 use std::error::Error;
 use std::ffi::CString;
 use std::ops::{Deref, DerefMut};
@@ -7,39 +6,39 @@ use std::slice::from_raw_parts;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use futures::executor::block_on;
 use log::{error, info, warn};
+use ruffle_core::{LoadBehavior, Player, PlayerBuilder, PlayerEvent};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
 use ruffle_core::tag_utils::SwfMovie;
-use ruffle_core::{LoadBehavior, Player, PlayerBuilder, PlayerEvent};
 use ruffle_render::backend::ViewportDimensions;
 use ruffle_video_software::backend::SoftwareVideoBackend;
+use rust_libretro::environment;
 use rust_libretro::contexts::*;
-use rust_libretro::core::{Core, CoreOptions};
+use rust_libretro::core::Core;
 use rust_libretro::environment::get_save_directory;
-use rust_libretro::sys::retro_hw_context_type::*;
 use rust_libretro::sys::*;
+use rust_libretro::sys::retro_hw_context_type::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
-use rust_libretro::{environment, input_descriptors};
+use thiserror::Error as ThisError;
 
+use crate::{backend, built_info, util};
 use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
-use crate::backend::render::opengl::OpenGlWgpuRenderBackend;
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
-use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
-use crate::backend::render::vulkan::VulkanWgpuRenderBackend;
 use crate::backend::render::HardwareRenderCallback;
 use crate::backend::render::HardwareRenderContextNegotiationInterface;
 use crate::backend::render::HardwareRenderError::UnsupportedHardwareContext;
+use crate::backend::render::opengl::OpenGlWgpuRenderBackend;
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
+use crate::backend::render::vulkan::VulkanWgpuRenderBackend;
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
+use crate::core::{input, Ruffle};
 use crate::core::config::defaults;
 use crate::core::state::PlayerState::{Active, Pending, Uninitialized};
-use crate::core::{input, Ruffle};
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
-use crate::{backend, built_info, util};
-use thiserror::Error as ThisError;
 
 #[derive(ThisError, Debug)]
 pub enum CoreError {

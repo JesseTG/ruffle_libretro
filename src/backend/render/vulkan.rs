@@ -1,19 +1,14 @@
 use std::borrow::Cow;
 use std::error::Error;
-use std::ffi::CStr;
-use std::path::Path;
 use std::sync::Arc;
 
-use crate::backend::render::required_limits;
-use crate::backend::render::vulkan::context::RetroVulkanCreatedContextWgpu;
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 use ash::vk;
 use ash::vk::{
     Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceRange, ImageViewCreateInfo, ImageViewType,
 };
 use gc_arena::MutationContext;
-use ruffle_core::swf::Glyph;
 use ruffle_core::Color;
+use ruffle_core::swf::Glyph;
 use ruffle_render::backend::{Context3D, Context3DCommand, RenderBackend, ShapeHandle, ViewportDimensions};
 use ruffle_render::bitmap::{Bitmap, BitmapHandle, BitmapSource};
 use ruffle_render::commands::CommandList;
@@ -25,8 +20,8 @@ use ruffle_render_wgpu::target::TextureTarget;
 use rust_libretro_sys::{retro_environment_t, retro_game_geometry, retro_vulkan_image};
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan as VulkanApi;
-use wgpu_hal::{Api, InstanceFlags};
 
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
 mod context;
