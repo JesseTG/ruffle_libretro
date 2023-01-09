@@ -128,6 +128,42 @@ impl<'a> Debug for Names {
     }
 }
 
+pub(crate) struct PropertiesFormat<'a, T> {
+    properties: &'a [T],
+}
+
+impl<'a, T> PropertiesFormat<'a, T> {
+    pub fn new(properties: &'a [T]) -> Self {
+        Self { properties }
+    }
+}
+
+impl<'a> Debug for PropertiesFormat<'a, ExtensionProperties> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(self.properties.iter().map(|p| unsafe {
+                let cstr = CStr::from_ptr(p.extension_name.as_ptr());
+                format!("ExtensionProperties({cstr:?}, spec={})", p.spec_version)
+            }))
+            .finish()
+    }
+}
+
+impl<'a> Debug for PropertiesFormat<'a, LayerProperties> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(self.properties.iter().map(|p| unsafe {
+                let layer_name = CStr::from_ptr(p.layer_name.as_ptr());
+                let description = CStr::from_ptr(p.description.as_ptr());
+                format!(
+                    "LayerProperties({layer_name:?}, description={description:?}, spec={}, implementation={})",
+                    p.spec_version, p.implementation_version
+                )
+            }))
+            .finish()
+    }
+}
+
 pub fn physical_device_features_any(features: vk::PhysicalDeviceFeatures) -> bool {
     let features: [vk::Bool32; 55] = unsafe { transmute(features) };
 

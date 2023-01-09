@@ -203,6 +203,7 @@ impl VulkanContextNegotiationInterface {
         if log_enabled!(log::Level::Debug) {
             match initial_context.entry.enumerate_instance_extension_properties(None) {
                 Ok(extensions) => {
+                    let extensions = PropertiesFormat::new(&extensions);
                     debug!("Available instance extensions: {extensions:#?}");
                 }
                 Err(error) => {
@@ -214,6 +215,7 @@ impl VulkanContextNegotiationInterface {
         if log_enabled!(log::Level::Debug) {
             match initial_context.entry.enumerate_instance_layer_properties() {
                 Ok(layers) => {
+                    let layers = PropertiesFormat::new(&layers);
                     debug!("Available instance layers: {layers:#?}");
                 }
                 Err(error) => {

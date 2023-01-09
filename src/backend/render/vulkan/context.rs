@@ -258,7 +258,10 @@ impl RetroVulkanCreatedContext {
             let available_device_extensions = initial_context
                 .instance
                 .enumerate_device_extension_properties(physical_device)?;
-            info!("Available extensions for this device: {available_device_extensions:#?}");
+            info!(
+                "Available extensions for this device: {:#?}",
+                PropertiesFormat::new(&available_device_extensions)
+            );
         }
 
         let device = Self::create_logical_device(
