@@ -7,7 +7,7 @@ use std::sync::Once;
 
 use ash::vk;
 use ash::vk::{ApplicationInfo, PFN_vkGetInstanceProcAddr};
-use log::{error, info, warn};
+use log::{debug, error, info, log_enabled, warn};
 use rust_libretro_sys::retro_hw_render_context_negotiation_interface_type::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN;
 use rust_libretro_sys::{
     retro_hw_render_context_negotiation_interface_type, retro_hw_render_context_negotiation_interface_vulkan,
@@ -163,6 +163,29 @@ impl VulkanContextNegotiationInterface {
                 return false;
             }
         };
+
+        if log_enabled!(log::Level::Debug) {
+            match initial_context.entry.enumerate_instance_extension_properties(None) {
+                Ok(extensions) => {
+                    let extensions = extensions.iter().map(|e| CStr::from_ptr(e.extension_name.as_ptr()));
+                    debug!("Available instance extensions: {extensions:#?}");
+                }
+                Err(error) => {
+                    warn!("Failed to query available instance extensions: {error}");
+                }
+            };
+        }
+
+        if log_enabled!(log::Level::Debug) {
+            match initial_context.entry.enumerate_instance_layer_properties() {
+                Ok(layers) => {
+                    debug!("Available instance layers: {layers:#?}");
+                }
+                Err(error) => {
+                    warn!("Failed to query available instance layers: {error}");
+                }
+            };
+        }
 
         if !initial_context.required_device_layers.is_empty() {
             warn!("Frontend requested specific device layers, but this core doesn't check for them yet");
