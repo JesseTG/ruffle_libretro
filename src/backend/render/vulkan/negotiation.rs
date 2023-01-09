@@ -146,14 +146,23 @@ impl VulkanContextNegotiationInterface {
             }
         };
 
-        if let Some(version) = initial_context.entry.try_enumerate_instance_version()? {
-            let major = vk::api_version_major(version);
-            let minor = vk::api_version_minor(version);
-            let patch = vk::api_version_patch(version);
-            let variant = vk::api_version_variant(version);
+        match initial_context.entry.try_enumerate_instance_version() {
+            Ok(Some(version)) => {
+                let major = vk::api_version_major(version);
+                let minor = vk::api_version_minor(version);
+                let patch = vk::api_version_patch(version);
+                let variant = vk::api_version_variant(version);
 
-            info!("Using Vulkan {major}.{minor}.{patch} (variant {variant})");
-        }
+                info!("Using Vulkan {major}.{minor}.{patch} (variant {variant})");
+            }
+            Ok(None) => {
+                info!("Using unknown Vulkan version");
+            }
+            Err(error) => {
+                error!("Error querying active Vulkan version: {error}");
+                return false;
+            }
+        };
 
         if !initial_context.required_device_layers.is_empty() {
             warn!("Frontend requested specific device layers, but this core doesn't check for them yet");
