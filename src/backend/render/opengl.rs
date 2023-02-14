@@ -10,14 +10,16 @@ use log::trace;
 use ruffle_core::Color;
 use ruffle_core::swf::Glyph;
 use ruffle_render::backend::{Context3D, Context3DCommand, RenderBackend, ShapeHandle, ViewportDimensions};
-use ruffle_render::bitmap::{Bitmap, BitmapHandle, BitmapSource};
+use ruffle_render::bitmap::{Bitmap, BitmapHandle, BitmapSource, SyncHandle};
 use ruffle_render::commands::CommandList;
 use ruffle_render::error::Error as RuffleError;
+use ruffle_render::quality::StageQuality;
 use ruffle_render::shape_utils::DistilledShape;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
 use ruffle_render_wgpu::target::TextureTarget;
-use rust_libretro_sys::retro_game_geometry;
+use rust_libretro_sys::{retro_game_geometry, retro_hw_render_callback};
+use wgpu_types::InstanceDescriptor;
 
 use crate::backend::render::{HardwareRenderCallback, required_limits};
 
@@ -27,7 +29,7 @@ pub struct OpenGlWgpuRenderBackend {
 
 impl OpenGlWgpuRenderBackend {
     pub async fn new(
-        hw_render: &HardwareRenderCallback,
+        hw_render: &retro_hw_render_callback,
         geometry: &retro_game_geometry,
     ) -> Result<OpenGlWgpuRenderBackend, Box<dyn Error>> {
         let descriptors = unsafe {
@@ -36,7 +38,7 @@ impl OpenGlWgpuRenderBackend {
                     CString::new(sym)
                         .ok() // Get the symbol name ready for C...
                         .and_then(|sym| {
-                            let address = hw_render.get_proc_address(sym.as_c_str());
+                            let address = hw_render.get_proc_address.unwrap()(sym.as_ptr());
                             trace!("get_proc_address({sym:?}) = {address:?}");
                             address
                         }) // Then get the function address from libretro...
@@ -49,7 +51,7 @@ impl OpenGlWgpuRenderBackend {
         let target = TextureTarget::new(&descriptors.device, (geometry.base_width, geometry.max_height))?;
 
         Ok(Self {
-            backend: WgpuRenderBackend::new(Arc::new(descriptors), target, 4)?,
+            backend: WgpuRenderBackend::new(Arc::new(descriptors), target)?,
             // TODO: Get the sample count from the core config
         })
     }
@@ -60,7 +62,11 @@ impl OpenGlWgpuRenderBackend {
     ) -> Result<Descriptors, Box<dyn Error>> {
         use wgpu_hal::api::Gles;
         use wgpu_hal::Api;
-        let instance = wgpu::Instance::new(wgpu::Backends::GL);
+
+        let instance = wgpu::Instance::new(InstanceDescriptor {
+            backends: wgpu::Backends::GL,
+            dx12_shader_compiler: Default::default(),
+        });
         let adapter_hal =
             <Gles as Api>::Adapter::new_external(fun).expect("expose_adapter should be infallible");
         let adapter = instance.create_adapter_from_hal(adapter_hal);
@@ -107,7 +113,7 @@ impl RenderBackend for OpenGlWgpuRenderBackend {
         width: u32,
         height: u32,
         commands: CommandList,
-    ) -> Result<Bitmap, RuffleError> {
+    ) -> Option<Box<dyn SyncHandle>> {
         self.backend.render_offscreen(handle, width, height, commands)
     }
 
@@ -144,5 +150,9 @@ impl RenderBackend for OpenGlWgpuRenderBackend {
 
     fn debug_info(&self) -> Cow<'static, str> {
         self.backend.debug_info()
+    }
+
+    fn set_quality(&mut self, quality: StageQuality) {
+        todo!()
     }
 }

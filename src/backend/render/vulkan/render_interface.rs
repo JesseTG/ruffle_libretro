@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::ffi::c_void;
 use std::mem::transmute;
 use std::ptr;
@@ -8,83 +9,71 @@ use ash::{
     Entry, Instance,
 };
 use rust_libretro::environment;
-use rust_libretro_sys::retro_hw_render_interface_type::RETRO_HW_RENDER_INTERFACE_VULKAN;
 use rust_libretro_sys::{
     retro_environment_t, retro_hw_render_interface_vulkan, retro_vulkan_image,
     RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
 };
 
 use crate::backend::render::vulkan::context::RetroVulkanCreatedContext;
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 use crate::backend::render::HardwareRenderError;
 use crate::backend::render::HardwareRenderError::*;
+use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 
 pub struct VulkanRenderInterface {
     // We don't own this
     interface: *const retro_hw_render_interface_vulkan,
-    created_context: RetroVulkanCreatedContext,
+    //created_context: RetroVulkanCreatedContext,
 }
 
 impl VulkanRenderInterface {
     pub fn new(
-        environ_cb: retro_environment_t,
-        negotiation_interface: &VulkanContextNegotiationInterface,
-    ) -> Result<Self, HardwareRenderError> {
+        environ_cb: retro_environment_t
+    ) -> Result<Self, Box<dyn Error>> {
         unsafe {
             let interface = environment::get_unchecked::<*const retro_hw_render_interface_vulkan>(
                 environ_cb,
                 RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE,
-            );
+            )?;
 
-            let interface = match interface {
-                Some((_, false)) => Err(InvalidEnvironmentCallback)?,
-                Some((ptr, true)) if ptr.is_null() => Err(NullRenderInterface(RETRO_HW_RENDER_INTERFACE_VULKAN))?,
-                Some((ptr, true)) if (*ptr).interface_type != RETRO_HW_RENDER_INTERFACE_VULKAN => {
-                    Err(WrongRenderInterfaceType(RETRO_HW_RENDER_INTERFACE_VULKAN, (*ptr).interface_type))?
-                }
-                Some((ptr, true)) => ptr,
-                _ => Err(FailedToGetRenderInterface(RETRO_HW_RENDER_INTERFACE_VULKAN))?,
-            };
-
-            let created_context = match negotiation_interface.created_context.as_ref() {
-                Some(created_context) => created_context.clone(),
-                None => {
-                    // The context negotiation interface didn't create a device,
-                    // so we'll create a wrapper around the device that the render interface gave us
-                    let instance = (*interface).instance;
-                    let get_instance_proc_addr = (*interface).get_instance_proc_addr.unwrap();
-                    let static_fn = StaticFn::load(|sym| {
-                        let fun = get_instance_proc_addr(instance, sym.as_ptr());
-                        fun.unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null()))
-                            as *const c_void
-                    });
-
-                    let entry = Entry::from_static_fn(static_fn);
-                    let instance = Instance::load(entry.static_fn(), instance);
-                    let device = ash::Device::load(instance.fp_v1_0(), (*interface).device);
-
-                    RetroVulkanCreatedContext {
-                        entry,
-                        instance,
-                        physical_device: (*interface).gpu,
-                        device,
-                        queue: (*interface).queue,
-                        queue_family_index: (*interface).queue_index,
-                        presentation_queue: (*interface).queue,
-                        presentation_queue_family_index: (*interface).queue_index,
-                    }
-                }
-            };
+            // let created_context = match negotiation_interface.created_context.as_ref() {
+            //     Some(created_context) => created_context.clone(),
+            //     None => {
+            //         // The context negotiation interface didn't create a device,
+            //         // so we'll create a wrapper around the device that the render interface gave us
+            //         let instance = (*interface).instance;
+            //         let get_instance_proc_addr = (*interface).get_instance_proc_addr.unwrap();
+            //         let static_fn = StaticFn::load(|sym| {
+            //             let fun = get_instance_proc_addr(instance, sym.as_ptr());
+            //             fun.unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null()))
+            //                 as *const c_void
+            //         });
+            //
+            //         let entry = Entry::from_static_fn(static_fn);
+            //         let instance = Instance::load(entry.static_fn(), instance);
+            //         let device = ash::Device::load(instance.fp_v1_0(), (*interface).device);
+            //
+            //         RetroVulkanCreatedContext {
+            //             entry,
+            //             instance,
+            //             physical_device: (*interface).gpu,
+            //             device,
+            //             queue: (*interface).queue,
+            //             queue_family_index: (*interface).queue_index,
+            //             presentation_queue: (*interface).queue,
+            //             presentation_queue_family_index: (*interface).queue_index,
+            //         }
+            //     }
+            // };
 
             Ok(Self {
                 interface,
-                created_context,
+                //created_context,
             })
         }
     }
 
     pub fn created_context(&self) -> &RetroVulkanCreatedContext {
-        &self.created_context
+        todo!()
     }
 
     pub fn set_image(

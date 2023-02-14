@@ -1,17 +1,16 @@
 use std::error::Error;
 use std::ffi::{c_void, CStr};
 
-use rust_libretro::{environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
+use rust_libretro::anyhow::bail;
+use rust_libretro::contexts::{GenericContext, LoadGameContext};
+use rust_libretro::{anyhow, environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 use rust_libretro_sys::retro_hw_context_type::*;
 use rust_libretro_sys::{
     retro_environment_t, retro_hw_context_type, retro_hw_render_callback,
     retro_hw_render_context_negotiation_interface_type, retro_hw_render_interface_type, retro_proc_address_t,
-    RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER, RETRO_ENVIRONMENT_SET_HW_RENDER,
-    RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE,
 };
 use thiserror::Error as ThisError;
 
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 use crate::backend::render::HardwareRenderError::*;
 
 pub mod opengl;
@@ -50,25 +49,6 @@ pub enum HardwareRenderError {
     NullInterfaceFunction(&'static str),
 }
 
-pub fn get_preferred_hw_render(environ_cb: retro_environment_t) -> Result<retro_hw_context_type, HardwareRenderError> {
-    let preferred_renderer =
-        match { unsafe { environment::get::<u32>(environ_cb, RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER) } } {
-            Some((0, true)) => RETRO_HW_CONTEXT_NONE,
-            Some((1, true)) => RETRO_HW_CONTEXT_OPENGL,
-            Some((2, true)) => RETRO_HW_CONTEXT_OPENGLES2,
-            Some((3, true)) => RETRO_HW_CONTEXT_OPENGL_CORE,
-            Some((4, true)) => RETRO_HW_CONTEXT_OPENGLES3,
-            Some((5, true)) => RETRO_HW_CONTEXT_OPENGLES_VERSION,
-            Some((6, true)) => RETRO_HW_CONTEXT_VULKAN,
-            Some((7, true)) => RETRO_HW_CONTEXT_DIRECT3D,
-            Some((_, false)) => Err(DriverSwitchingNotAvailable)?,
-            Some((unknown, true)) => Err(UnknownContextType(unknown))?,
-            None => Err(InvalidEnvironmentCallback)?,
-        };
-
-    Ok(preferred_renderer)
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct HardwareRenderCallback {
     // RetroArch maintains its own instance, so we don't need to keep this one around
@@ -77,10 +57,7 @@ pub struct HardwareRenderCallback {
 }
 
 impl HardwareRenderCallback {
-    pub fn set(
-        preferred_renderer: retro_hw_context_type,
-        environ_cb: retro_environment_t,
-    ) -> Result<Self, HardwareRenderError> {
+    pub fn set(preferred_renderer: retro_hw_context_type, environ_cb: retro_environment_t) -> anyhow::Result<Self> {
         let callback = retro_hw_render_callback {
             context_type: match preferred_renderer {
                 RETRO_HW_CONTEXT_OPENGL => RETRO_HW_CONTEXT_OPENGLES2,
@@ -114,12 +91,9 @@ impl HardwareRenderCallback {
             get_proc_address: None,
         };
 
-        // Using ctx.set_hw_render doesn't set the proc address
-        match unsafe { environment::set_ptr(environ_cb, RETRO_ENVIRONMENT_SET_HW_RENDER, &callback) } {
-            Some(true) => Ok(Self { callback }),
-            Some(false) => Err(FailedToSetRenderer(preferred_renderer))?,
-            None => Err(InvalidEnvironmentCallback)?,
-        }
+        Ok(Self {
+            callback: unsafe { environment::set_hw_render(environ_cb, callback)? },
+        })
     }
 
     pub fn get_proc_address(&self, sym: &CStr) -> retro_proc_address_t {
@@ -135,40 +109,6 @@ impl HardwareRenderCallback {
     }
 }
 
-pub trait HardwareRenderContextNegotiationInterface {
-    unsafe fn get_ptr(&self) -> *const c_void;
-
-    fn r#type(&self) -> retro_hw_render_context_negotiation_interface_type;
-}
-
-impl dyn HardwareRenderContextNegotiationInterface {
-    pub fn instance(
-        hw_render: &HardwareRenderCallback,
-    ) -> Result<Option<&'static impl HardwareRenderContextNegotiationInterface>, Box<dyn Error>> {
-        match hw_render.callback.context_type {
-            RETRO_HW_CONTEXT_VULKAN => Ok(Some(VulkanContextNegotiationInterface::get_instance()?)),
-            _ => Ok(None), // Not an error;
-        }
-    }
-
-    pub fn set(
-        interface: &dyn HardwareRenderContextNegotiationInterface,
-        environ_cb: retro_environment_t,
-    ) -> Result<(), Box<dyn Error>> {
-        match unsafe {
-            environment::set_ptr(
-                environ_cb,
-                RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE,
-                interface.get_ptr(),
-            )
-        } {
-            Some(true) => Ok(()),
-            Some(false) => Err(FailedToSetNegotiationInterface(interface.r#type()))?,
-            _ => Err(InvalidEnvironmentCallback)?,
-        }
-    }
-}
-
 // We try to request the highest limits we can get away with
 fn required_limits(adapter: &wgpu::Adapter) -> (wgpu::Limits, wgpu::Features) {
     // We start off with the lowest limits we actually need - basically GL-ES 3.0
@@ -178,11 +118,52 @@ fn required_limits(adapter: &wgpu::Adapter) -> (wgpu::Limits, wgpu::Features) {
     limits = limits.using_resolution(adapter.limits());
     limits = limits.using_alignment(adapter.limits());
 
-    limits.max_storage_buffers_per_shader_stage =
-        adapter.limits().max_storage_buffers_per_shader_stage;
+    limits.max_storage_buffers_per_shader_stage = adapter.limits().max_storage_buffers_per_shader_stage;
     limits.max_storage_buffer_binding_size = adapter.limits().max_storage_buffer_binding_size;
 
     let features = wgpu::Features::DEPTH32FLOAT_STENCIL8;
 
     (limits, features)
+}
+
+pub fn enable_hw_render(ctx: &mut LoadGameContext, preferred_renderer: retro_hw_context_type) -> anyhow::Result<()> {
+    unsafe {
+        ctx.enable_hw_render(
+            match preferred_renderer {
+                RETRO_HW_CONTEXT_OPENGL => RETRO_HW_CONTEXT_OPENGLES2,
+                RETRO_HW_CONTEXT_OPENGLES_VERSION | RETRO_HW_CONTEXT_OPENGL_CORE => RETRO_HW_CONTEXT_OPENGLES3,
+                // wgpu supports OpenGL ES, but *not* plain OpenGL.
+                _ => preferred_renderer,
+            },
+            true,
+            match preferred_renderer {
+                RETRO_HW_CONTEXT_OPENGLES3 => 3,
+                RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
+                RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
+                RETRO_HW_CONTEXT_VULKAN => ash::vk::API_VERSION_1_3,
+                _ => 0, // Other video contexts don't need a major version number
+            },
+            match preferred_renderer {
+                RETRO_HW_CONTEXT_OPENGLES3 => 1,
+                _ => 0, // Other video contexts don't need a minor version number
+            },
+            true,
+        )?;
+    };
+
+    Ok(())
+}
+
+pub fn enable_hw_render_negotiation_interface(
+    ctx: &mut LoadGameContext,
+    preferred_renderer: retro_hw_context_type,
+) -> anyhow::Result<()> {
+    if preferred_renderer == RETRO_HW_CONTEXT_VULKAN {
+        vulkan::negotiation::enable(ctx)?;
+    }
+
+    // Enable the Vulkan context negotiation interface if using Vulkan,
+    // otherwise do nothing.
+
+    Ok(())
 }

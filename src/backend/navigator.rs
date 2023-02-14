@@ -10,14 +10,18 @@ use ruffle_core::indexmap::IndexMap;
 use ruffle_core::loader::Error;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
-use rust_libretro::contexts::GenericContext;
+//use rust_libretro::contexts::GenericContext;
+use rust_libretro_sys::retro_game_info;
 use url::Url;
+use crate::core::config::Config;
 
 /// Implementation of `NavigatorBackend` for non-web environments that can call
 /// out to a web browser.
 pub struct RetroNavigatorBackend<'a> {
     /// Sink for tasks sent to us through `spawn_future`.
     channel: Sender<OwnedFuture<(), Error>>,
+    /// Event sink to trigger a new task poll.
+    //event_loop: EventLoopProxy<RuffleEvent>,
 
     /// The url to use for all relative fetches.
     base_url: Url,
@@ -25,20 +29,18 @@ pub struct RetroNavigatorBackend<'a> {
     // Client to use for network requests
     client: Option<Rc<HttpClient>>,
 
-    upgrade_to_https: bool,
-
-    context: GenericContext<'a>,
+    config: &'a Config,
 }
 
 impl<'a> RetroNavigatorBackend<'a> {
     /// Construct a navigator backend with fetch and async capability.
     pub fn new(
+        game_info: &retro_game_info,
         movie_url: Url,
         channel: Sender<OwnedFuture<(), Error>>,
+        //event_loop: EventLoopProxy<RuffleEvent>,
         proxy: Option<Url>,
-        upgrade_to_https: bool,
-        context: GenericContext<'a>,
-        // TODO: Include a config parameter
+        config: &'a Config,
     ) -> Self {
         let proxy = proxy.and_then(|url| url.as_str().parse().ok());
         let builder = HttpClient::builder()
@@ -61,8 +63,7 @@ impl<'a> RetroNavigatorBackend<'a> {
             channel,
             client,
             base_url,
-            upgrade_to_https,
-            context,
+            config,
         }
     }
 }
@@ -216,7 +217,7 @@ impl<'a> NavigatorBackend for RetroNavigatorBackend<'a> {
     }
 
     fn pre_process_url(&self, mut url: Url) -> Url {
-        if self.upgrade_to_https && url.scheme() == "http" && url.set_scheme("https").is_err() {
+        if self.config.upgrade_to_https && url.scheme() == "http" && url.set_scheme("https").is_err() {
             log::error!("Url::set_scheme failed on: {}", url);
         }
         url

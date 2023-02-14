@@ -14,6 +14,7 @@ pub struct Config {
     pub(crate) spoofed_url: Option<String>,
     pub(crate) sample_rate: u32,
     pub(crate) msaa: u8,
+    pub(crate) upgrade_to_https: bool,
 }
 
 impl Config {
@@ -29,6 +30,7 @@ impl Config {
             spoofed_url: None,
             sample_rate: defaults::SAMPLE_RATE,
             msaa: defaults::MSAA,
+            upgrade_to_https: defaults::UPGRADE_TO_HTTPS,
         }
     }
 }
@@ -48,4 +50,5 @@ pub mod defaults {
     pub const FILE_ACCESS_POLICY: FileAccessPolicy = FileAccessPolicy::Never;
     pub const WEB_BROWSER_ACCESS: WebBrowserAccess = WebBrowserAccess::Ignore;
     pub const SAMPLE_RATE: u32 = 44100;
+    pub const UPGRADE_TO_HTTPS: bool = true;
 }

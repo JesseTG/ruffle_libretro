@@ -12,10 +12,11 @@ use ash::vk::{
 };
 use log::{debug, info, log_enabled, warn};
 use ruffle_render_wgpu::descriptors::Descriptors;
+use rust_libretro_sys::retro_vulkan_create_device_wrapper_t;
 use rust_libretro_sys::vulkan::VkPhysicalDevice;
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
-use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice, UpdateAfterBindTypes};
+use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice};
 
 use crate::backend::render::required_limits;
 use crate::backend::render::vulkan::context::ContextConversionError::FailedToExposePhysicalDevice;
@@ -45,9 +46,7 @@ pub struct RetroVulkanInitialContext {
     pub physical_device: Option<vk::PhysicalDevice>,
     pub surface_fn: Option<ash::extensions::khr::Surface>,
     pub surface: Option<vk::SurfaceKHR>,
-    pub required_device_extensions: Names,
-    pub required_device_layers: Names,
-    pub required_features: vk::PhysicalDeviceFeatures,
+    pub create_device_wrapper: retro_vulkan_create_device_wrapper_t,
 }
 
 /// The Vulkan resources that are exposed to cores,
@@ -90,11 +89,7 @@ impl RetroVulkanInitialContext {
         gpu: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
         get_instance_proc_addr: Option<PFN_vkGetInstanceProcAddr>,
-        required_device_extensions: *mut *const c_char,
-        num_required_device_extensions: c_uint,
-        required_device_layers: *mut *const c_char,
-        num_required_device_layers: c_uint,
-        required_features: *const vk::PhysicalDeviceFeatures,
+        create_device_wrapper: retro_vulkan_create_device_wrapper_t,
     ) -> Result<Self, Box<dyn Error>> {
         if instance == vk::Instance::null() {
             Err("Frontend called create_device without a valid VkInstance")?
@@ -124,14 +119,6 @@ impl RetroVulkanInitialContext {
             Some(Surface::new(&entry, &instance))
         };
 
-        let mut required_device_extensions =
-            Names::from_raw_parts(required_device_extensions, num_required_device_extensions);
-
-        required_device_extensions
-            .add_cstr(vk::KhrTimelineSemaphoreFn::name())
-            .add_cstr(vk::KhrMaintenance4Fn::name())
-            .add_cstr(vk::KhrSamplerMirrorClampToEdgeFn::name());
-
         Ok(Self {
             entry,
             instance,
@@ -142,13 +129,7 @@ impl RetroVulkanInitialContext {
             },
             surface_fn,
             surface,
-            required_device_extensions,
-            required_device_layers: Names::from_raw_parts(required_device_layers, num_required_device_layers),
-            required_features: if required_features.is_null() {
-                PhysicalDeviceFeatures::default()
-            } else {
-                *required_features
-            },
+            create_device_wrapper,
         })
     }
 
@@ -166,7 +147,7 @@ impl RetroVulkanInitialContext {
 
         let available_physical_devices: Vec<vk::PhysicalDevice> = available_physical_devices
             .into_iter()
-            .filter_map(|device| unsafe { self.filter_physical_device(device) })
+            .filter_map(|device| self.filter_physical_device(device))
             .collect::<Result<Vec<_>, _>>()?;
 
         match available_physical_devices.len() {
@@ -176,33 +157,15 @@ impl RetroVulkanInitialContext {
         }
     }
 
-    unsafe fn filter_physical_device(&self, physical_device: vk::PhysicalDevice) -> Option<VkResult<VkPhysicalDevice>> {
+    fn filter_physical_device(&self, physical_device: vk::PhysicalDevice) -> Option<VkResult<VkPhysicalDevice>> {
         // See if this VkPhysicalDevice meets the following conditions...
         info!("Evaluating VkPhysicalDevice {physical_device:?}");
 
-        // A device that supports the required extensions, if we need any in particular...
-
-        match self.instance.enumerate_device_extension_properties(physical_device) {
-            Ok(extensions) => {
-                if !self.required_device_extensions.supported_by(&extensions) {
-                    return None;
-                }
-            }
-            Err(error) => return Some(Err(error)),
-        };
-
-        if physical_device_features_any(self.required_features) {
-            // If the frontend requires any specific VkPhysicalDeviceFeatures...
-            warn!("Frontend requires VkPhysicalDeviceFeatures, but this core doesn't check for them yet.");
-            warn!("Please file a bug here, and be sure to say which frontend you're using https://github.com/JesseTG/ruffle_libretro");
-            warn!("Required features: {:#?}", self.required_features);
-            // TODO: Check that the supported features are provided
-        }
-
         // A device with a queue that supports GRAPHICS and COMPUTE...
-        let queue_families = self
-            .instance
-            .get_physical_device_queue_family_properties(physical_device);
+        let queue_families = unsafe {
+            self.instance
+                .get_physical_device_queue_family_properties(physical_device)
+        };
 
         let required_families_supported = queue_families
             .iter()
@@ -217,7 +180,10 @@ impl RetroVulkanInitialContext {
 }
 
 impl RetroVulkanCreatedContext {
-    pub unsafe fn new(initial_context: &RetroVulkanInitialContext) -> Result<Self, Box<dyn Error>> {
+    pub unsafe fn new(
+        initial_context: &RetroVulkanInitialContext,
+        opaque: *mut c_void,
+    ) -> Result<Self, Box<dyn Error>> {
         // The frontend will request certain extensions and layers for a device which is created.
         // The core must ensure that the queue and queue_family_index support GRAPHICS and COMPUTE.
 
@@ -260,19 +226,16 @@ impl RetroVulkanCreatedContext {
             let available_device_extensions = initial_context
                 .instance
                 .enumerate_device_extension_properties(physical_device)?;
-            info!(
-                "Available extensions for this device: {:#?}",
-                PropertiesFormat::new(&available_device_extensions)
-            );
+            info!("Available extensions for this device: {:#?}", PropertiesFormat::new(&available_device_extensions));
         }
 
         let device = Self::create_logical_device(
             &initial_context.instance,
             physical_device,
             &queue_families,
-            &initial_context.required_device_extensions,
-            &initial_context.required_device_layers,
-            &initial_context.required_features,
+            |info| {
+                initial_context.create_device_wrapper.unwrap()(physical_device, opaque, info)
+            }
         )?;
 
         let queues = Queues::new(
@@ -305,7 +268,7 @@ impl RetroVulkanCreatedContext {
             InstanceFlags::empty()
         }; // Logic taken from `VulkanHalInstance::init`
 
-        let instance_extensions = VulkanHalInstance::required_extensions(&self.entry, flags)?;
+        let instance_extensions = VulkanHalInstance::required_extensions(&self.entry, vk::API_VERSION_1_2, flags)?;
         debug!("Instance extensions required by wgpu: {instance_extensions:#?}");
 
         let has_nv_optimus = unsafe {
@@ -336,9 +299,6 @@ impl RetroVulkanCreatedContext {
             .expose_adapter(self.physical_device)
             .ok_or(FailedToExposePhysicalDevice(self.physical_device))?;
 
-        let uab_types =
-            UpdateAfterBindTypes::from_limits(&adapter.capabilities.limits, &physical_device_properties.limits);
-
         let open_device = unsafe {
             let device_extensions = adapter.adapter.required_device_extensions(adapter.features);
             adapter.adapter.device_from_raw(
@@ -346,7 +306,6 @@ impl RetroVulkanCreatedContext {
                 false,
                 &device_extensions,
                 adapter.features,
-                uab_types,
                 self.queue_family_index,
                 0, // wgpu assumes this to be 0
             )?
@@ -461,14 +420,15 @@ impl RetroVulkanCreatedContext {
         }
     }
 
-    fn create_logical_device(
+    fn create_logical_device<F>(
         instance: &ash::Instance,
         physical_device: vk::PhysicalDevice,
         queue_families: &QueueFamilies,
-        enabled_extensions: &Names,
-        enabled_layers: &Names,
-        enabled_features: &vk::PhysicalDeviceFeatures,
-    ) -> Result<ash::Device, Box<dyn Error>> {
+        create_device_wrapper: F,
+    ) -> Result<ash::Device, Box<dyn Error>>
+    where
+        F: FnOnce(&DeviceCreateInfo) -> vk::Device,
+    {
         let queue_create_info = DeviceQueueCreateInfo::builder()
             .queue_family_index(queue_families.queue_family_index)
             .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.
@@ -504,14 +464,14 @@ impl RetroVulkanCreatedContext {
 
         let device_create_info = DeviceCreateInfo::builder()
             .queue_create_infos(queue_create_infos)
-            .enabled_features(enabled_features)
-            .enabled_extension_names(enabled_extensions.ptr_slice())
-            .enabled_layer_names(enabled_layers.ptr_slice())
             .push_next(&mut physical_device_vulkan_12_features)
             // .flags(DeviceCreateFlags) VkDeviceCreateFlags is empty, currently reserved
             .build();
 
-        unsafe { Ok(instance.create_device(physical_device, &device_create_info, None)?) }
+        let device = create_device_wrapper(&device_create_info);
+        unsafe {
+            Ok(ash::Device::load(instance.fp_v1_0(), device))
+        }
     }
 }
 

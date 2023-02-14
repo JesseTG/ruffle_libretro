@@ -24,16 +24,16 @@ ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", features = ["tess
 ruffle_video = { git = "https://github.com/ruffle-rs/ruffle" }
 ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle" }
 ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", features = ["clap"] }
-rust-libretro = { git = "https://github.com/max-m/rust-libretro", branch = "vulkan", features = ["log", "vulkan", "unstable-env-commands"] }
-rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", branch = "vulkan", features = ["vulkan"] }
+rust-libretro = { git = "https://github.com/max-m/rust-libretro", rev = "342acd1dc457493eebfd5a519316cd55a0a60a9f", features = ["vulkan", "unstable-env-commands", "strict-bitflags", "log"] }
+rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", rev = "342acd1dc457493eebfd5a519316cd55a0a60a9f", features = ["vulkan"] }
 tap = "1.0.1"
 thiserror = "1.0.38"
 url = "2.3.1"
 webbrowser = "0.8.2"
-wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "630c12fe47a7bc0dc9ec6217f3903ec6fd6e3fac", features = ["angle"] }
-wgpu-core = { git = "https://github.com/gfx-rs/wgpu", rev = "630c12fe47a7bc0dc9ec6217f3903ec6fd6e3fac" }
-wgpu-hal = { git = "https://github.com/gfx-rs/wgpu", rev = "630c12fe47a7bc0dc9ec6217f3903ec6fd6e3fac", features = ["gles", "vulkan"] }
-wgpu-types = { git = "https://github.com/gfx-rs/wgpu", rev = "630c12fe47a7bc0dc9ec6217f3903ec6fd6e3fac" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181", features = ["angle"] }
+wgpu-core = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181" }
+wgpu-hal = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181", features = ["gles", "vulkan"] }
+wgpu-types = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181" }
 
 [build-dependencies]
 built = "0.5"

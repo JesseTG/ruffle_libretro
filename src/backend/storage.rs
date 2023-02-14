@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use log::{debug, error, warn};
 use ruffle_core::backend::storage::StorageBackend;
+use rust_libretro::anyhow;
 use rust_libretro::sys::retro_vfs_interface;
 use rust_libretro::types::{VfsFileOpenFlags, VfsFileOpenHints};
 use thiserror::Error as ThisError;
@@ -35,7 +36,7 @@ pub struct RetroVfsStorageBackend {
 }
 
 impl RetroVfsStorageBackend {
-    pub fn new(base_path: &Path, vfs: Arc<Cell<Option<retro_vfs_interface>>>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(base_path: &Path, vfs: Arc<Cell<Option<retro_vfs_interface>>>) -> anyhow::Result<Self> {
         let shared_objects_path = base_path.join("SharedObjects");
 
         let result = Self {
@@ -66,7 +67,7 @@ impl RetroVfsStorageBackend {
         self.base_path.join(name.replacen("/#", "/", 1))
     }
 
-    fn ensure_storage_dir(&self, path: &PathBuf) -> Result<(), Box<dyn Error>> {
+    fn ensure_storage_dir(&self, path: &PathBuf) -> anyhow::Result<()> {
         let cpath = CString::new(path.to_str().ok_or(StorageError::InvalidUnicodePath)?)?;
         let vfs = self.vfs.get().ok_or(StorageError::InterfaceNull)?;
 

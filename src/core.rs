@@ -4,7 +4,6 @@ use std::sync::Arc;
 use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
 use rust_libretro::contexts::GenericContext;
 use rust_libretro::sys::retro_system_av_info;
-use crate::backend::render::HardwareRenderCallback;
 
 use crate::core::config::Config;
 use crate::core::state::PlayerState;
@@ -170,9 +169,9 @@ pub struct Ruffle {
     av_info: Option<retro_system_av_info>,
     vfs: Arc<Cell<Option<retro_vfs_interface>>>,
     environ_cb: Arc<Cell<retro_environment_t>>,
-    hw_render_callback: Option<HardwareRenderCallback>,
     config: Config,
     threaded_audio: bool,
+    frontend_preferred_hw_render: retro_hw_context_type
 }
 
 impl Ruffle {
@@ -182,9 +181,9 @@ impl Ruffle {
             av_info: None,
             vfs: Arc::new(Cell::new(None)),
             environ_cb: Arc::new(Cell::new(None)),
-            hw_render_callback: None,
             config: Config::new(),
             threaded_audio: false,
+            frontend_preferred_hw_render: retro_hw_context_type::RETRO_HW_CONTEXT_NONE
         }
     }
 }

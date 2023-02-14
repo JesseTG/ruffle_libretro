@@ -7,12 +7,14 @@ use ash::vk::{
     Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceRange, ImageViewCreateInfo, ImageViewType,
 };
 use gc_arena::MutationContext;
-use ruffle_core::Color;
 use ruffle_core::swf::Glyph;
+use ruffle_core::Color;
 use ruffle_render::backend::{Context3D, Context3DCommand, RenderBackend, ShapeHandle, ViewportDimensions};
-use ruffle_render::bitmap::{Bitmap, BitmapHandle, BitmapSource};
+use ruffle_render::bitmap::{Bitmap, BitmapHandle, BitmapSource, SyncHandle};
 use ruffle_render::commands::CommandList;
 use ruffle_render::error::Error as RuffleError;
+use ruffle_render::filters::Filter;
+use ruffle_render::quality::StageQuality;
 use ruffle_render::shape_utils::DistilledShape;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
@@ -21,7 +23,6 @@ use rust_libretro_sys::{retro_environment_t, retro_game_geometry, retro_vulkan_i
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan as VulkanApi;
 
-use crate::backend::render::vulkan::negotiation::VulkanContextNegotiationInterface;
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
 mod context;
@@ -45,10 +46,10 @@ pub struct VulkanWgpuRenderBackend {
 impl VulkanWgpuRenderBackend {
     pub fn new(
         environ_cb: retro_environment_t,
-        negotiation: &VulkanContextNegotiationInterface,
         geometry: &retro_game_geometry,
     ) -> Result<Self, Box<dyn Error>> {
-        let interface = VulkanRenderInterface::new(environ_cb, negotiation)?;
+
+        let interface = VulkanRenderInterface::new(environ_cb)?;
         let context = interface.created_context();
         let descriptors = context.create_descriptors()?;
         let (width, height) = (geometry.base_width, geometry.base_height);
@@ -64,8 +65,7 @@ impl VulkanWgpuRenderBackend {
             texture.ok_or("Texture must exist in Vulkan HAL")?
         }; // Don't free this, it belongs to wgpu
 
-        let backend = WgpuRenderBackend::new(descriptors.clone(), target, 4)?;
-        // TODO: Get the sample count from the core config
+        let backend = WgpuRenderBackend::new(descriptors.clone(), target)?;
         let subresource_range = ImageSubresourceRange::builder()
             .aspect_mask(ImageAspectFlags::COLOR)
             .level_count(vk::REMAINING_MIP_LEVELS)
@@ -123,8 +123,21 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         width: u32,
         height: u32,
         commands: CommandList,
-    ) -> Result<Bitmap, RuffleError> {
+    ) -> Option<Box<(dyn SyncHandle + 'static)>> {
         self.backend.render_offscreen(handle, width, height, commands)
+    }
+
+    fn apply_filter(
+        &mut self,
+        source: BitmapHandle,
+        source_point: (u32, u32),
+        source_size: (u32, u32),
+        destination: BitmapHandle,
+        dest_point: (u32, u32),
+        filter: Filter,
+    ) -> Option<Box<dyn SyncHandle>> {
+        self.backend
+            .apply_filter(source, source_point, source_size, destination, dest_point, filter)
     }
 
     fn submit_frame(&mut self, clear: Color, commands: CommandList) {
@@ -161,15 +174,23 @@ impl RenderBackend for VulkanWgpuRenderBackend {
     fn debug_info(&self) -> Cow<'static, str> {
         self.backend.debug_info()
     }
+
+    fn set_quality(&mut self, quality: StageQuality) {
+        self.backend.set_quality(quality)
+    }
 }
 
 impl Drop for VulkanWgpuRenderBackend {
     fn drop(&mut self) {
         unsafe {
-            self.interface.created_context().device.destroy_image_view(self.image.image_view, None);
+            self.interface
+                .created_context()
+                .device
+                .destroy_image_view(self.image.image_view, None);
         } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did.
 
         // Also, don't destroy self.device or self.instance;
-        // we didn't create the underlying VkDevice or VkInstance, RetroArch did.
+        // we created them, but RetroArch took ownership of them,
+        // so it's responsible for cleanup.
     }
 }

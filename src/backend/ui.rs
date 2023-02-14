@@ -52,7 +52,7 @@ impl UiBackend for RetroUiBackend {
         }
     }
 
-    fn set_fullscreen(&mut self, is_full: bool) -> Result<(), FullscreenError> {
+    fn set_fullscreen(&mut self, _is_full: bool) -> Result<(), FullscreenError> {
         todo!()
     }
 
