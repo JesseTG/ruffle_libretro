@@ -131,6 +131,7 @@ unsafe extern "C" fn create_instance(
     });
     ENTRY = Some(ash::Entry::from_static_fn(static_fn));
     INSTANCE = Some(ash::Instance::load(ENTRY.as_ref().unwrap().static_fn(), instance));
+    debug!("Created VkInstance {instance:?}");
     instance
 }
 
@@ -268,6 +269,8 @@ unsafe fn create_device2_impl(
         let instance_fn = instance.fp_v1_0();
         ash::Device::load(instance_fn, device)
     })?;
+
+    debug!("Created VkDevice {:?}", device.handle());
 
     let queues = Queues::new(
         device.get_device_queue(queue_families.queue_family_index, 0),
