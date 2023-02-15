@@ -1,5 +1,6 @@
 use ash::vk;
 use ash::vk::{ExtensionProperties, LayerProperties};
+use rust_libretro::anyhow;
 use std::error::Error;
 use std::ffi::{c_char, c_uint, CStr, CString};
 use std::fmt::{Debug, Display, Formatter};
@@ -37,94 +38,6 @@ impl Queues {
             queue,
             presentation_queue,
         }
-    }
-}
-
-pub struct Names {
-    cstring: Vec<CString>,
-    ptr: Vec<*const c_char>,
-}
-
-impl Names {
-    pub unsafe fn from_raw_parts(data: *mut *const c_char, len: c_uint) -> Self {
-        let ptr = from_raw_parts(data, len as usize);
-
-        let cstring: Vec<CString> = ptr.iter().map(|c| CString::from(CStr::from_ptr(*c))).collect();
-        let ptr: Vec<*const c_char> = cstring.iter().map(|c| c.as_ptr()).collect();
-
-        Self { cstring, ptr }
-    }
-
-    pub fn add_str(&mut self, name: &'static str) -> &mut Self {
-        let cstring = CString::new(name).unwrap();
-        self.cstring.push(cstring);
-        self.ptr.push(unsafe { self.cstring[self.cstring.len() - 1].as_ptr() });
-        self
-    }
-
-    pub fn add_cstr(&mut self, name: &'static CStr) -> &mut Self {
-        let cstring = CString::from(name);
-        self.cstring.push(cstring);
-        self.ptr.push(unsafe { self.cstring[self.cstring.len() - 1].as_ptr() });
-        self
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.cstring.is_empty()
-    }
-
-    pub fn ptr_slice(&self) -> &[*const c_char] {
-        &self.ptr
-    }
-
-    /// Returns true if the provided extension properties include all of this object's names
-    pub fn supported_by(&self, available_extensions: &[ExtensionProperties]) -> bool {
-        if available_extensions.is_empty() {
-            // If no extensions are available, then any requirements listed by this Names
-            // won't be met (unless it's empty).
-            return self.cstring.is_empty();
-        }
-
-        if self.cstring.is_empty() {
-            // But if there *are* available extensions
-            // and this Names doesn't ask for any,
-            // then we're good.
-            return true;
-        }
-
-        let available_extensions: Vec<&CStr> = available_extensions
-            .iter()
-            .map(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) })
-            .collect();
-
-        self.cstring
-            .iter()
-            .all(|n| available_extensions.contains(&n.as_c_str()))
-    }
-}
-
-impl From<Vec<CString>> for Names {
-    fn from(value: Vec<CString>) -> Self {
-        let ptr = value.iter().map(|c| c.as_ptr()).collect();
-        Self { cstring: value, ptr }
-    }
-}
-
-impl From<&[*const c_char]> for Names {
-    fn from(value: &[*const c_char]) -> Self {
-        let cstring: Vec<CString> = value
-            .iter()
-            .map(|c| unsafe { CString::from(CStr::from_ptr(*c)) })
-            .collect();
-        let ptr = cstring.iter().map(|c| c.as_ptr()).collect();
-
-        Self { cstring, ptr }
-    }
-}
-
-impl<'a> Debug for Names {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_list().entries(self.cstring.iter()).finish()
     }
 }
 
@@ -170,7 +83,7 @@ pub fn physical_device_features_any(features: vk::PhysicalDeviceFeatures) -> boo
     features.iter().sum::<vk::Bool32>() > 0
 }
 
-pub fn get_android_sdk_version() -> Result<u32, Box<dyn Error>> {
+pub fn get_android_sdk_version() -> anyhow::Result<u32> {
     #[cfg(not(target_os = "android"))]
     return Ok(0);
 

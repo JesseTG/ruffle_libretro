@@ -384,7 +384,8 @@ impl Ruffle {
                 builder.with_renderer(block_on(OpenGlWgpuRenderBackend::new(&hw_render_callback, &av_info.geometry))?)
             }
             RETRO_HW_CONTEXT_VULKAN => {
-                builder.with_renderer(VulkanWgpuRenderBackend::new(environ_cb, &av_info.geometry)?)
+                let render_interface = unsafe { ctx.get_hw_render_interface_vulkan()? };
+                builder.with_renderer(VulkanWgpuRenderBackend::new(environ_cb, &av_info.geometry, &render_interface)?)
             }
             other => Err(UnsupportedHardwareContext(other))?,
         };

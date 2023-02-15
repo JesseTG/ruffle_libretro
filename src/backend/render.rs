@@ -110,7 +110,7 @@ impl HardwareRenderCallback {
 }
 
 // We try to request the highest limits we can get away with
-fn required_limits(adapter: &wgpu::Adapter) -> (wgpu::Limits, wgpu::Features) {
+pub fn required_limits(adapter: &wgpu::Adapter) -> (wgpu::Limits, wgpu::Features) {
     // We start off with the lowest limits we actually need - basically GL-ES 3.0
     let mut limits = wgpu::Limits::downlevel_webgl2_defaults();
     // Then we increase parts of it to the maximum supported by the adapter, to take advantage of
@@ -159,7 +159,7 @@ pub fn enable_hw_render_negotiation_interface(
     preferred_renderer: retro_hw_context_type,
 ) -> anyhow::Result<()> {
     if preferred_renderer == RETRO_HW_CONTEXT_VULKAN {
-        vulkan::negotiation::enable(ctx)?;
+        vulkan::context::enable(ctx)?;
     }
 
     // Enable the Vulkan context negotiation interface if using Vulkan,
