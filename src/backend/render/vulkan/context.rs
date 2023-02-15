@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{c_char, c_void, CStr, c_uint};
 use std::fmt::Debug;
 use std::mem::transmute;
 use std::ptr;
@@ -132,6 +132,24 @@ unsafe extern "C" fn create_instance(
     ENTRY = Some(ash::Entry::from_static_fn(static_fn));
     INSTANCE = Some(ash::Instance::load(ENTRY.as_ref().unwrap().static_fn(), instance));
     instance
+}
+
+/// Provided to pacify RetroArch, as it still wants create_device defined
+/// even if it uses create_device2 instead
+unsafe extern "C" fn create_device(
+    _context: *mut retro_vulkan_context,
+    _instance: vk::Instance,
+    _gpu: vk::PhysicalDevice,
+    _surface: vk::SurfaceKHR,
+    _get_instance_proc_addr: Option<vk::PFN_vkGetInstanceProcAddr>,
+    _required_device_extensions: *mut *const c_char,
+    _num_required_device_extensions: c_uint,
+    _required_device_layers: *mut *const c_char,
+    _num_required_device_layers: c_uint,
+    _required_features: *const vk::PhysicalDeviceFeatures,
+) -> bool {
+    warn!("create_device is not supported due to its inability to specify instance extensions. If you see this, the core will likely fail.");
+    return false;
 }
 
 /// Exists to simplify error reporting
@@ -491,7 +509,7 @@ pub fn enable(ctx: &mut LoadGameContext) -> anyhow::Result<()> {
     unsafe {
         ctx.enable_hw_render_negotiation_interface_vulkan(
             Some(get_application_info),
-            None,
+            Some(create_device),
             Some(destroy_device),
             Some(create_instance),
             Some(create_device2),
