@@ -170,8 +170,7 @@ pub struct Ruffle {
     vfs: Arc<Cell<Option<retro_vfs_interface>>>,
     environ_cb: Arc<Cell<retro_environment_t>>,
     config: Config,
-    threaded_audio: bool,
-    frontend_preferred_hw_render: retro_hw_context_type
+    frontend_preferred_hw_render: retro_hw_context_type,
 }
 
 impl Ruffle {
@@ -182,8 +181,7 @@ impl Ruffle {
             vfs: Arc::new(Cell::new(None)),
             environ_cb: Arc::new(Cell::new(None)),
             config: Config::new(),
-            threaded_audio: false,
-            frontend_preferred_hw_render: retro_hw_context_type::RETRO_HW_CONTEXT_NONE
+            frontend_preferred_hw_render: retro_hw_context_type::RETRO_HW_CONTEXT_NONE,
         }
     }
 }
