@@ -232,7 +232,10 @@ unsafe fn create_device2_impl(
         info!("Frontend didn't pick a VkPhysicalDevice, core will do so instead");
         select_physical_device(&instance)?
     };
-    info!("Using VkPhysicalDevice {gpu:?}");
+    
+    let gpu_properties = instance.get_physical_device_properties(gpu);
+    let gpu_name = CStr::from_ptr(gpu_properties.device_name.as_ptr());
+    info!("Using VkPhysicalDevice {gpu_name:?} ({gpu:?})");
 
     let surface_fn = if surface.is_none() {
         None

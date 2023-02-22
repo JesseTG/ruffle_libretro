@@ -258,8 +258,8 @@ pub fn create_descriptors(interface: &VulkanRenderInterface) -> anyhow::Result<D
             false,
             &device_extensions,
             adapter.features,
-            interface.queue_family_index(),
-            0, // wgpu assumes this to be 0
+            0, // TODO: Add interface.queue_family_index()
+            interface.queue_index(), // wgpu assumes this to be 0
         )?
     };
 

@@ -7,9 +7,7 @@ use log::warn;
 use std::ptr;
 use std::{error::Error, ffi::CStr, mem::transmute};
 
-use rust_libretro_sys::{
-    retro_hw_render_interface_vulkan, retro_vulkan_image,
-};
+use rust_libretro_sys::{retro_hw_render_interface_vulkan, retro_vulkan_image};
 
 use crate::backend::render::HardwareRenderError;
 use crate::backend::render::HardwareRenderError::*;
@@ -39,8 +37,12 @@ impl VulkanRenderInterface {
                 ash::Entry::from_static_fn(static_fn)
             });
 
-        let instance = INSTANCE.clone().unwrap_or_else(|| ash::Instance::load(entry.static_fn(), interface.instance));
-        let device = DEVICE.clone().unwrap_or_else(|| ash::Device::load(instance.fp_v1_0(), interface.device));
+        let instance = INSTANCE
+            .clone()
+            .unwrap_or_else(|| ash::Instance::load(entry.static_fn(), interface.instance));
+        let device = DEVICE
+            .clone()
+            .unwrap_or_else(|| ash::Device::load(instance.fp_v1_0(), interface.device));
         // TODO: Ensure that the handles provided by interface are the same as in the statics
 
         Ok(Self {
@@ -67,8 +69,12 @@ impl VulkanRenderInterface {
         self.interface.gpu
     }
 
-    pub fn queue_family_index(&self) -> u32 {
+    pub fn queue_index(&self) -> u32 {
         self.interface.queue_index
+    }
+
+    pub fn queue(&self) -> vk::Queue {
+        self.interface.queue
     }
 
     pub fn set_image(
