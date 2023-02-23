@@ -153,7 +153,8 @@ impl RenderBackend for VulkanWgpuRenderBackend {
     }
 
     fn submit_frame(&mut self, clear: Color, commands: CommandList) {
-        self.backend.submit_frame(clear, commands)
+        self.backend.submit_frame(clear, commands);
+        self.interface.set_image(&self.image, &[], self.interface.queue_index());
     }
 
     fn register_bitmap(&mut self, bitmap: Bitmap) -> Result<BitmapHandle, RuffleError> {
