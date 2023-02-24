@@ -113,7 +113,6 @@ impl Core for Ruffle {
     fn on_run(&mut self, ctx: &mut RunContext, delta_us: Option<i64>) {
         if let (Active(player), Some(delta)) = (&self.player, delta_us) {
             ctx.poll_input();
-            let input_device_capabilities = ctx.get_input_device_capabilities();
             // TODO: Handle input
             let joypad_state = ctx.get_joypad_state(0, 0);
             let mut player = player.lock().expect("Cannot reenter");
