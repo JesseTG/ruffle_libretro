@@ -335,7 +335,7 @@ unsafe fn create_device2_impl(
     };
 
     if let Some(surface) = surface {
-        set_debug_name(debug_utils, &device, surface, b"RetroArch Surface");
+        set_debug_name(debug_utils, &device, surface, b"RetroArch Surface\0");
     }
 
     DEVICE = Some(device.clone());
