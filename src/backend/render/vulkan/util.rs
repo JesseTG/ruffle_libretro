@@ -8,35 +8,89 @@ use std::intrinsics::transmute;
 use std::slice::from_raw_parts;
 
 #[derive(Clone, Copy, Debug)]
-pub struct QueueFamilies {
-    pub queue_family_index: u32,
-    pub presentation_queue_family_index: u32,
+pub(crate) struct QueueFamily(pub vk::QueueFamilyProperties, pub u32);
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Queue(pub vk::Queue, pub u32);
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum QueueFamilies {
+    /// Represents a single VkQueue that supports graphics, compute, and present.
+    Single(QueueFamily),
+    Split {
+        graphics_compute: QueueFamily,
+        present: QueueFamily,
+    },
+    GraphicsComputeOnly(QueueFamily),
 }
 
 impl QueueFamilies {
-    pub fn new(queue_family_index: u32, presentation_queue_family_index: u32) -> Self {
-        Self {
-            queue_family_index,
-            presentation_queue_family_index,
+    pub(crate) fn queue_family_index(&self) -> u32 {
+        match self {
+            Self::Single(q) => q.1,
+            Self::Split { graphics_compute, .. } => graphics_compute.1,
+            Self::GraphicsComputeOnly(q) => q.1,
         }
     }
 
-    pub fn are_same(&self) -> bool {
-        self.queue_family_index == self.presentation_queue_family_index
+    pub(crate) fn presentation_queue_family_index(&self) -> u32 {
+        match self {
+            Self::Single(q) => q.1,
+            Self::Split { present, .. } => present.1,
+            Self::GraphicsComputeOnly(_) => 0,
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Queues {
-    pub(crate) queue: vk::Queue,
-    pub(crate) presentation_queue: vk::Queue,
+pub(crate) enum Queues {
+    /// Represents a single VkQueue that supports graphics, compute, and present.
+    Single(Queue),
+    Split {
+        graphics_compute: Queue,
+        present: Queue,
+    },
+    GraphicsComputeOnly(Queue),
 }
 
 impl Queues {
-    pub fn new(queue: vk::Queue, presentation_queue: vk::Queue) -> Self {
-        Self {
-            queue,
-            presentation_queue,
+    pub(crate) unsafe fn new(device: &ash::Device, families: &QueueFamilies) -> Self {
+        match families {
+            QueueFamilies::Single(family) => {
+                let queue = device.get_device_queue(family.1, 0);
+                Self::Single(Queue(queue, 0))
+            }
+            QueueFamilies::Split {
+                graphics_compute,
+                present,
+            } => {
+                let graphics_compute = device.get_device_queue(graphics_compute.1, 0);
+                let present = device.get_device_queue(present.1, 0);
+                Self::Split {
+                    graphics_compute: Queue(graphics_compute, 0),
+                    present: Queue(present, 0),
+                }
+            }
+            QueueFamilies::GraphicsComputeOnly(family) => {
+                let queue = device.get_device_queue(family.1, 0);
+                Self::GraphicsComputeOnly(Queue(queue, 0))
+            }
+        }
+    }
+
+    pub(crate) fn queue(&self) -> vk::Queue {
+        match self {
+            Self::Single(q) => q.0,
+            Self::Split { graphics_compute, .. } => graphics_compute.0,
+            Self::GraphicsComputeOnly(q) => q.0,
+        }
+    }
+
+    pub(crate) fn presentation_queue(&self) -> vk::Queue {
+        match self {
+            Self::Single(q) => q.0,
+            Self::Split { present, .. } => present.0,
+            Self::GraphicsComputeOnly(_) => vk::Queue::null(),
         }
     }
 }

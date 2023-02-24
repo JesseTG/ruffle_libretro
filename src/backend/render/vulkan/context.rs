@@ -1,14 +1,18 @@
 use std::error::Error;
-use std::ffi::{c_char, c_void, CStr, c_uint};
+use std::ffi::{c_char, c_uint, c_void, CStr};
 use std::fmt::Debug;
 use std::mem::transmute;
 use std::ptr;
 use std::sync::Once;
 
+use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::Surface;
 use ash::extensions::{ext, khr};
 use ash::prelude::VkResult;
-use ash::vk::{self, DeviceCreateInfo, DeviceQueueCreateInfo, QueueFamilyProperties, QueueFlags, StaticFn, SurfaceKHR};
+use ash::vk::{
+    self, DebugUtilsObjectNameInfoEXT, DeviceCreateInfo, DeviceQueueCreateInfo, Handle, QueueFamilyProperties,
+    QueueFlags, StaticFn, SurfaceKHR,
+};
 use ash::vk::{ApplicationInfo, PFN_vkGetInstanceProcAddr};
 use log::{debug, error, info, log_enabled, warn};
 use rust_libretro::anyhow::{self, anyhow, bail};
@@ -23,6 +27,8 @@ use wgpu_hal::{Api, ExposedAdapter, OpenDevice};
 
 use crate::backend::render::vulkan::util::{PropertiesFormat, QueueFamilies, Queues};
 use crate::built_info;
+
+use super::util::QueueFamily;
 
 #[derive(ThisError, Debug)]
 pub enum VulkanNegotiationError {
@@ -58,6 +64,9 @@ static mut APPLICATION_INFO: Option<ApplicationInfo> = None;
 pub(super) static mut ENTRY: Option<ash::Entry> = None;
 pub(super) static mut INSTANCE: Option<ash::Instance> = None;
 pub(super) static mut DEVICE: Option<ash::Device> = None;
+
+#[cfg(debug_assertions)]
+pub(super) static mut DEBUG_UTILS: Option<DebugUtils> = None;
 
 unsafe extern "C" fn get_application_info() -> *const ApplicationInfo {
     debug!("get_application_info()");
@@ -129,9 +138,15 @@ unsafe extern "C" fn create_instance(
         get_instance_proc_addr(instance, sym.as_ptr())
             .unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null())) as *const c_void
     });
-    ENTRY = Some(ash::Entry::from_static_fn(static_fn));
-    INSTANCE = Some(ash::Instance::load(ENTRY.as_ref().unwrap().static_fn(), instance));
-    debug!("Created VkInstance {instance:?}");
+    let entry = ash::Entry::from_static_fn(static_fn.clone());
+    let ash_instance = ash::Instance::load(&static_fn.clone(), instance);
+    ENTRY = Some(entry.clone());
+    INSTANCE = Some(ash_instance.clone());
+
+    #[cfg(debug_assertions)]
+    {
+        DEBUG_UTILS = Some(ash::extensions::ext::DebugUtils::new(&entry, &ash_instance));
+    }
     instance
 }
 
@@ -183,6 +198,11 @@ unsafe fn create_device2_impl(
         .as_ref()
         .expect("INSTANCE should've been initialized in create_instance");
 
+    #[cfg(debug_assertions)]
+    let debug_utils = DEBUG_UTILS
+        .as_ref()
+        .expect("DEBUG_UTILS should've been initialized in create_instance");
+
     match entry.try_enumerate_instance_version() {
         Ok(Some(version)) => {
             let major = vk::api_version_major(version);
@@ -232,7 +252,7 @@ unsafe fn create_device2_impl(
         info!("Frontend didn't pick a VkPhysicalDevice, core will do so instead");
         select_physical_device(&instance)?
     };
-    
+
     let gpu_properties = instance.get_physical_device_properties(gpu);
     let gpu_name = CStr::from_ptr(gpu_properties.device_name.as_ptr());
     info!("Using VkPhysicalDevice {gpu_name:?} ({gpu:?})");
@@ -253,14 +273,30 @@ unsafe fn create_device2_impl(
     } else {
         // Just get a queue with COMPUTE and GRAPHICS, then
         let queue_families = instance.get_physical_device_queue_family_properties(gpu);
-        let index = select_queue_family(&queue_families)?;
-        QueueFamilies::new(index, index)
+        QueueFamilies::GraphicsComputeOnly(select_queue_family(&queue_families)?)
     };
 
-    info!(
-        "Selected queue families {0} (gfx/compute) and {1} (presentation)",
-        queue_families.queue_family_index, queue_families.presentation_queue_family_index
-    );
+    match queue_families {
+        QueueFamilies::Single(family) => {
+            info!("Using queue family no. {0} for graphics, compute, and present", family.1);
+            debug!("Details: {0:?}", family.0);
+        }
+        QueueFamilies::Split {
+            graphics_compute,
+            present,
+        } => {
+            info!(
+                "Using queue family no. {0} for graphics and compute, family no. {1} for present",
+                graphics_compute.1, present.1
+            );
+            debug!("Graphics/compute details: {0:?}", graphics_compute.0);
+            debug!("Present details: {0:?}", present.0);
+        }
+        QueueFamilies::GraphicsComputeOnly(family) => {
+            warn!("Using queue family no. {0} for graphics and compute, but none was found for present.", family.1);
+            debug!("Details: {0:?}", family.0);
+        }
+    };
 
     if log_enabled!(log::Level::Info) {
         let available_device_extensions = instance.enumerate_device_extension_properties(gpu)?;
@@ -275,20 +311,42 @@ unsafe fn create_device2_impl(
 
     debug!("Created VkDevice {:?}", device.handle());
 
-    let queues = Queues::new(
-        device.get_device_queue(queue_families.queue_family_index, 0),
-        device.get_device_queue(queue_families.presentation_queue_family_index, 0),
-    );
+    set_debug_name(debug_utils, &device, instance.handle(), b"Ruffle Instance\0");
+    set_debug_name(debug_utils, &device, device.handle(), b"Ruffle-Created Device\0");
+    set_debug_name(debug_utils, &device, gpu, b"Ruffle GPU\0");
+
+    let queues = Queues::new(&device, &queue_families);
+
+    #[cfg(debug_assertions)]
+    match queues {
+        Queues::Single(q) => {
+            set_debug_name(debug_utils, &device, q.0, b"Ruffle-Selected Gfx/Compute/Present Queue\0");
+        }
+        Queues::Split {
+            graphics_compute,
+            present,
+        } => {
+            set_debug_name(debug_utils, &device, graphics_compute.0, b"Ruffle-Selected Gfx/Compute Queue\0");
+            set_debug_name(debug_utils, &device, present.0, b"Ruffle-Selected Present Queue\0");
+        }
+        Queues::GraphicsComputeOnly(q) => {
+            set_debug_name(debug_utils, &device, q.0, b"Ruffle-Selected Gfx/Compute Queue\0");
+        }
+    };
+
+    if let Some(surface) = surface {
+        set_debug_name(debug_utils, &device, surface, b"RetroArch Surface");
+    }
 
     DEVICE = Some(device.clone());
 
     Ok(retro_vulkan_context {
         device: device.handle(),
         gpu,
-        queue: queues.queue,
-        queue_family_index: queue_families.queue_family_index,
-        presentation_queue: queues.presentation_queue,
-        presentation_queue_family_index: queue_families.presentation_queue_family_index,
+        queue: queues.queue(),
+        queue_family_index: queue_families.queue_family_index(),
+        presentation_queue: queues.presentation_queue(),
+        presentation_queue_family_index: queue_families.presentation_queue_family_index(),
     })
 }
 
@@ -328,6 +386,7 @@ unsafe extern "C" fn create_device2(
         }
         Err(error) => {
             error!("Failed to create VkDevice: {error}");
+            // TODO: Clean up logical device if the below functions fail
             return false;
         }
     };
@@ -338,6 +397,29 @@ unsafe extern "C" fn destroy_device() {
     ENTRY = None;
     INSTANCE = None;
     DEVICE = None;
+
+    #[cfg(debug_assertions)]
+    {
+        DEBUG_UTILS = None;
+    }
+}
+
+#[cfg(debug_assertions)]
+unsafe fn set_debug_name<T: Handle + Debug + Copy>(
+    debug_utils: &DebugUtils,
+    device: &ash::Device,
+    handle: T,
+    name: &[u8],
+) {
+    let device = device.handle();
+    let object_name_info = DebugUtilsObjectNameInfoEXT::builder()
+        .object_handle(handle.as_raw())
+        .object_type(T::TYPE)
+        .object_name(CStr::from_bytes_with_nul(name).unwrap());
+
+    if let Err(e) = debug_utils.set_debug_utils_object_name(device, &object_name_info) {
+        warn!("vkSetDebugUtilsObjectNameEXT failed on {handle:?}: {e}");
+    }
 }
 
 // The frontend will request certain extensions and layers for a device which is created.
@@ -404,7 +486,7 @@ fn select_queue_families(
             }
 
             match surface_fn.get_physical_device_surface_support(physical_device, i, surface) {
-                Ok(true) => Some(Ok(QueueFamilies::new(i, i))),
+                Ok(true) => Some(Ok(QueueFamilies::Single(QueueFamily(*family, i)))),
                 // This queue also supports presentation, so let's use it!
                 Ok(false) => None,
                 // This queue doesn't support presentation, let's keep searching.
@@ -427,10 +509,10 @@ fn select_queue_families(
     let presentation_queue_family = queue_families
         .iter()
         .enumerate()
-        .find_map(|(i, _)| unsafe {
+        .find_map(|(i, family)| unsafe {
             match surface_fn.get_physical_device_surface_support(physical_device, i as u32, surface) {
-                Ok(true) => Some(Ok(i as u32)), // This queue family supports presentation, let's use it
-                Ok(false) => None,              // This queue family doesn't support presentation, let's not use it
+                Ok(true) => Some(Ok(QueueFamily(*family, i as u32))), // This queue family supports presentation, let's use it
+                Ok(false) => None, // This queue family doesn't support presentation, let's not use it
                 Err(error) => Some(Err(anyhow!("Error in vkGetPhysicalDeviceSurfaceSupportKHR: {error}"))),
                 // There was an error, let's report it
             }
@@ -439,7 +521,10 @@ fn select_queue_families(
 
     if let Some(presentation_queue_family) = presentation_queue_family {
         // If we found a queue family that supports presentation...
-        Ok(QueueFamilies::new(queue_family, presentation_queue_family))
+        Ok(QueueFamilies::Split {
+            graphics_compute: queue_family,
+            present: presentation_queue_family,
+        })
     } else {
         bail!("No acceptable queue family was found")
     }
@@ -447,7 +532,7 @@ fn select_queue_families(
 
 // Only used if the surface extension isn't available
 // (Probably means we're not rendering to the screen)
-unsafe fn select_queue_family(queue_families: &[QueueFamilyProperties]) -> anyhow::Result<u32> {
+unsafe fn select_queue_family(queue_families: &[QueueFamilyProperties]) -> anyhow::Result<QueueFamily> {
     // The core must ensure that the queue and queue_family_index support GRAPHICS and COMPUTE.
     queue_families
         .iter()
@@ -455,7 +540,7 @@ unsafe fn select_queue_family(queue_families: &[QueueFamilyProperties]) -> anyho
         .find_map(|(i, family)| {
             // Get the first queue family that supports the features we need.
             if family.queue_flags.contains(QueueFlags::GRAPHICS | QueueFlags::COMPUTE) {
-                Some(i as u32)
+                Some(QueueFamily(*family, i as u32))
             } else {
                 None
             }
@@ -470,7 +555,7 @@ fn create_logical_device(
     create_device_wrapper: impl FnOnce(&DeviceCreateInfo) -> ash::Device,
 ) -> anyhow::Result<ash::Device> {
     let queue_create_info = DeviceQueueCreateInfo::builder()
-        .queue_family_index(queue_families.queue_family_index)
+        .queue_family_index(queue_families.queue_family_index())
         .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.
         .build();
 
@@ -486,20 +571,20 @@ fn create_logical_device(
     debug!("VkPhysicalDeviceFeatures2: {physical_device_features2:#?}");
     debug!("VkPhysicalDeviceVulkan12Features: {physical_device_vulkan_12_features:#?}");
 
-    let presentation_queue_create_info = if queue_families.are_same() {
-        queue_create_info
-    } else {
-        DeviceQueueCreateInfo::builder()
-            .queue_family_index(queue_families.presentation_queue_family_index)
-            .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.
-            .build()
+    let presentation_queue_create_info = match queue_families {
+        QueueFamilies::Split { present, .. } => {
+            DeviceQueueCreateInfo::builder()
+                .queue_family_index(present.1)
+                .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.
+                .build()
+        }
+        _ => queue_create_info,
     };
 
     let queue_create_infos = [queue_create_info, presentation_queue_create_info];
-    let queue_create_infos = if queue_families.are_same() {
-        &queue_create_infos[0..1]
-    } else {
-        &queue_create_infos
+    let queue_create_infos = match queue_families {
+        QueueFamilies::Split { .. } => &queue_create_infos,
+        _ => &queue_create_infos[0..1],
     };
 
     let device_create_info = DeviceCreateInfo::builder()
