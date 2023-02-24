@@ -25,7 +25,7 @@ use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
 use wgpu_hal::{Api, ExposedAdapter, OpenDevice};
 
-use crate::backend::render::vulkan::util::{PropertiesFormat, QueueFamilies, Queues};
+use crate::backend::render::vulkan::util::{PropertiesFormat, QueueFamilies, Queues, set_debug_name};
 use crate::built_info;
 
 use super::util::QueueFamily;
@@ -401,24 +401,6 @@ unsafe extern "C" fn destroy_device() {
     #[cfg(debug_assertions)]
     {
         DEBUG_UTILS = None;
-    }
-}
-
-#[cfg(debug_assertions)]
-unsafe fn set_debug_name<T: Handle + Debug + Copy>(
-    debug_utils: &DebugUtils,
-    device: &ash::Device,
-    handle: T,
-    name: &[u8],
-) {
-    let device = device.handle();
-    let object_name_info = DebugUtilsObjectNameInfoEXT::builder()
-        .object_handle(handle.as_raw())
-        .object_type(T::TYPE)
-        .object_name(CStr::from_bytes_with_nul(name).unwrap());
-
-    if let Err(e) = debug_utils.set_debug_utils_object_name(device, &object_name_info) {
-        warn!("vkSetDebugUtilsObjectNameEXT failed on {handle:?}: {e}");
     }
 }
 

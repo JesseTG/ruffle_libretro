@@ -38,6 +38,9 @@ type VulkanOpenDevice = OpenDevice<Vulkan>;
 use crate::backend::render::required_limits;
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
+use self::context::{DEBUG_UTILS, DEVICE};
+use self::util::set_debug_name;
+
 pub mod context;
 pub mod render_interface;
 mod util;
@@ -76,6 +79,24 @@ impl VulkanWgpuRenderBackend {
             texture.ok_or("Texture must exist in Vulkan HAL")?
         }; // Don't free this, it belongs to wgpu
 
+        #[cfg(debug_assertions)]
+        let debug_utils = unsafe {
+            DEBUG_UTILS
+                .as_ref()
+                .expect("DEBUG_UTILS should've been initialized as part of the context negotiation")
+        };
+
+        let device = unsafe {
+            DEVICE
+                .as_ref()
+                .expect("DEVICE should've been initialized as part of the context negotiation")
+        };
+
+        #[cfg(debug_assertions)]
+        unsafe {
+            set_debug_name(debug_utils, &device, image, b"Ruffle Intermediate Image\0");
+        };
+
         let backend = WgpuRenderBackend::new(descriptors.clone(), target)?;
         let subresource_range = ImageSubresourceRange::builder()
             .aspect_mask(ImageAspectFlags::COLOR)
@@ -91,6 +112,11 @@ impl VulkanWgpuRenderBackend {
             .build();
 
         let image_view = unsafe { interface.device().create_image_view(&create_info, None)? };
+
+        #[cfg(debug_assertions)]
+        unsafe {
+            set_debug_name(debug_utils, &device, image_view, b"Ruffle Intermediate Image View\0");
+        };
 
         let image = retro_vulkan_image {
             image_view,
