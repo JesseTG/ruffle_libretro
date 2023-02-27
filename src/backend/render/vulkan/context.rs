@@ -114,10 +114,11 @@ unsafe extern "C" fn create_instance(
     let required_instance_extensions: Vec<&'static CStr> = vec![
         khr::Surface::name(),
         vk::KhrGetPhysicalDeviceProperties2Fn::name(),
-        vk::ExtSwapchainColorspaceFn::name(),
         #[cfg(debug_assertions)]
         ext::DebugUtils::name(),
     ];
+
+    // TODO: vk::ExtSwapchainColorspaceFn is optional, only ask for it if it's available
 
     let required_instance_extensions: Vec<*const c_char> =
         required_instance_extensions.iter().map(|c| c.as_ptr()).collect();
