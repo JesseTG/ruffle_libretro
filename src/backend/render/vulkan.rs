@@ -55,7 +55,7 @@ pub struct VulkanWgpuRenderBackend {
     backend: WgpuRenderBackend<TextureTarget>,
     interface: VulkanRenderInterface,
     descriptors: Arc<Descriptors>,
-    image: retro_vulkan_image,
+    retro_image: retro_vulkan_image,
 }
 
 impl VulkanWgpuRenderBackend {
@@ -128,7 +128,7 @@ impl VulkanWgpuRenderBackend {
             backend,
             interface,
             descriptors,
-            image,
+            retro_image: image,
         })
     }
 }
@@ -222,7 +222,8 @@ impl RenderBackend for VulkanWgpuRenderBackend {
 impl Drop for VulkanWgpuRenderBackend {
     fn drop(&mut self) {
         unsafe {
-            self.interface.device().destroy_image_view(self.image.image_view, None);
+            let device = self.interface.device();
+            device.destroy_image_view(self.retro_image.image_view, None);
         } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did.
 
         // Also, don't destroy self.device or self.instance;
