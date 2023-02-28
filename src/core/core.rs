@@ -117,7 +117,8 @@ impl Core for Ruffle {
             let joypad_state = ctx.get_joypad_state(0, 0);
             let mut player = player.lock().expect("Cannot reenter");
 
-            player.tick(delta as f64);
+            player.tick((delta as f64) / 1000.0);
+            // Ruffle wants milliseconds, we have microseconds.
 
             if player.needs_render() {
                 player.render();
