@@ -85,13 +85,7 @@ impl VulkanRenderInterface {
     ) -> Result<(), HardwareRenderError> {
         unsafe {
             let set_image = self.interface.set_image.ok_or(NullInterfaceFunction("set_image"))?;
-            let ptr = if !semaphores.is_empty() {
-                semaphores.as_ptr()
-            } else {
-                ptr::null()
-            };
-
-            set_image(self.interface.handle, image, semaphores.len() as u32, ptr, src_queue_family);
+            set_image(self.interface.handle, image, semaphores.len() as u32, semaphores.as_ptr(), src_queue_family);
             Ok(())
         }
     }
