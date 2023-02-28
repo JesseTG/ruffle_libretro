@@ -199,16 +199,12 @@ unsafe fn create_device2_impl(
 ) -> anyhow::Result<retro_vulkan_context> {
     let get_instance_proc_addr = match get_instance_proc_addr {
         Some(g) => g,
-        None => {
-            bail!("Frontend provided create_device2 with a null get_instance_proc_addr, cannot create VkDevice");
-        }
+        None => bail!("Frontend provided a null get_instance_proc_addr"),
     };
 
     let create_device_wrapper = match create_device_wrapper {
         Some(d) => d,
-        None => {
-            bail!("Frontend provided create_device2 with a null create_device_wrapper, cannot create VkDevice");
-        }
+        None => bail!("Frontend provided a null create_device_wrapper"),
     };
 
     let entry = ENTRY
