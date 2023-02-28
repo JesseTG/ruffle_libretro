@@ -140,7 +140,7 @@ unsafe extern "C" fn create_instance(
             .unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null())) as *const c_void
     });
     let entry = ash::Entry::from_static_fn(static_fn.clone());
-    let ash_instance = ash::Instance::load(&static_fn.clone(), instance);
+    let ash_instance = ash::Instance::load(&static_fn, instance);
     ENTRY = Some(entry.clone());
     INSTANCE = Some(ash_instance.clone());
 

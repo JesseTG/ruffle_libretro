@@ -39,10 +39,12 @@ use crate::backend::render::required_limits;
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
 use self::context::{DEBUG_UTILS, DEVICE};
+use self::target::RetroTextureTarget;
 use self::util::set_debug_name;
 
 pub mod context;
 pub mod render_interface;
+mod target;
 mod util;
 
 #[derive(ThisError, Debug)]
@@ -52,10 +54,9 @@ pub enum VulkanRenderBackendError {
 }
 
 pub struct VulkanWgpuRenderBackend {
-    backend: WgpuRenderBackend<TextureTarget>,
+    backend: WgpuRenderBackend<RetroTextureTarget>,
     interface: VulkanRenderInterface,
     descriptors: Arc<Descriptors>,
-    retro_image: retro_vulkan_image,
 }
 
 impl VulkanWgpuRenderBackend {
@@ -67,69 +68,18 @@ impl VulkanWgpuRenderBackend {
         let interface = unsafe { VulkanRenderInterface::new(hw_render)? };
         let descriptors = create_descriptors(&interface)?;
         let (width, height) = (geometry.base_width, geometry.base_height);
-        let target = TextureTarget::new(&descriptors.device, (width, height))?;
+        let target = RetroTextureTarget::new(&descriptors.device, (width, height), wgpu::TextureFormat::Rgba8Unorm)?;
         let descriptors = Arc::new(descriptors);
-        // Create a VkImage that will be used to render the emulator's output.
-        // Don't free it manually, it belongs to wgpu!
-        let image = unsafe {
-            let mut texture: Option<Image> = None;
-            target.texture.as_hal::<Vulkan, _>(|t| {
-                texture = t.map(|t| t.raw_handle());
-            });
-            texture.ok_or("Texture must exist in Vulkan HAL")?
-        }; // Don't free this, it belongs to wgpu
 
-        #[cfg(debug_assertions)]
-        let debug_utils = unsafe {
-            DEBUG_UTILS
-                .as_ref()
-                .expect("DEBUG_UTILS should've been initialized as part of the context negotiation")
-        };
-
-        let device = unsafe {
-            DEVICE
-                .as_ref()
-                .expect("DEVICE should've been initialized as part of the context negotiation")
-        };
-
-        #[cfg(debug_assertions)]
         unsafe {
-            set_debug_name(debug_utils, &device, image, b"Ruffle Intermediate Image\0");
-        };
-
         let backend = WgpuRenderBackend::new(descriptors.clone(), target)?;
-        let subresource_range = ImageSubresourceRange::builder()
-            .aspect_mask(ImageAspectFlags::COLOR)
-            .level_count(vk::REMAINING_MIP_LEVELS)
-            .layer_count(vk::REMAINING_ARRAY_LAYERS)
-            .build();
-
-        let create_info = ImageViewCreateInfo::builder()
-            .image(image)
-            .view_type(ImageViewType::TYPE_2D)
-            .format(Format::R8G8B8A8_UNORM)
-            .subresource_range(subresource_range)
-            .build();
-
-        let image_view = unsafe { interface.device().create_image_view(&create_info, None)? };
-
-        #[cfg(debug_assertions)]
-        unsafe {
-            set_debug_name(debug_utils, &device, image_view, b"Ruffle Intermediate Image View\0");
-        };
-
-        let image = retro_vulkan_image {
-            image_view,
-            image_layout: ImageLayout::TRANSFER_DST_OPTIMAL,
-            create_info,
-        };
 
         Ok(Self {
             backend,
             interface,
             descriptors,
-            retro_image: image,
         })
+        }
     }
 }
 
@@ -180,7 +130,9 @@ impl RenderBackend for VulkanWgpuRenderBackend {
 
     fn submit_frame(&mut self, clear: Color, commands: CommandList) {
         self.backend.submit_frame(clear, commands);
-        self.interface.set_image(&self.image, &[], self.interface.queue_index());
+        let target = self.backend.target();
+        let queue_index = self.interface.queue_index();
+        self.interface.set_image(target.get_retro_image(), &[], queue_index);
     }
 
     fn register_bitmap(&mut self, bitmap: Bitmap) -> Result<BitmapHandle, RuffleError> {
@@ -223,7 +175,7 @@ impl Drop for VulkanWgpuRenderBackend {
     fn drop(&mut self) {
         unsafe {
             let device = self.interface.device();
-            device.destroy_image_view(self.retro_image.image_view, None);
+            device.destroy_image_view(self.backend.target().get_image_view(), None);
         } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did.
 
         // Also, don't destroy self.device or self.instance;
