@@ -21,7 +21,7 @@ use ruffle_render_wgpu::target::TextureTarget;
 use rust_libretro_sys::{retro_game_geometry, retro_hw_render_callback};
 use wgpu_types::InstanceDescriptor;
 
-use crate::backend::render::{HardwareRenderCallback, required_limits};
+use crate::backend::render::wgpu::required_limits;
 
 pub struct OpenGlWgpuRenderBackend {
     backend: WgpuRenderBackend<TextureTarget>,

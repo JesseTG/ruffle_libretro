@@ -20,7 +20,7 @@ use ruffle_render::quality::StageQuality;
 use ruffle_render::shape_utils::DistilledShape;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
-use ruffle_render_wgpu::target::TextureTarget;
+use ruffle_render_wgpu::target::{RenderTarget, RenderTargetFrame};
 use rust_libretro::anyhow;
 use rust_libretro_sys::{
     retro_environment_t, retro_game_geometry, retro_hw_render_interface_vulkan, retro_vulkan_image,
@@ -35,12 +35,11 @@ type VulkanPhysicalDevice = <Vulkan as Api>::Adapter;
 type VulkanQueue = <Vulkan as Api>::Queue;
 type VulkanPhysicalDeviceInfo = ExposedAdapter<Vulkan>;
 type VulkanOpenDevice = OpenDevice<Vulkan>;
-use crate::backend::render::required_limits;
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
 use self::context::{DEBUG_UTILS, DEVICE};
 use self::target::RetroTextureTarget;
-use self::util::set_debug_name;
+use self::util::{create_descriptors, set_debug_name};
 
 pub mod context;
 pub mod render_interface;
@@ -182,82 +181,4 @@ impl Drop for VulkanWgpuRenderBackend {
         // we created them, but RetroArch took ownership of them,
         // so it's responsible for cleanup.
     }
-}
-
-pub fn create_descriptors(interface: &VulkanRenderInterface) -> anyhow::Result<Descriptors> {
-    let entry = interface.entry();
-    let instance = interface.instance();
-    let physical_device = interface.physical_device();
-    let device = interface.device();
-    
-    let driver_api_version = entry
-        .try_enumerate_instance_version()?
-        .unwrap_or(vk::API_VERSION_1_0);
-    // vkEnumerateInstanceVersion isn't available in Vulkan 1.0
-
-    let flags = if cfg!(debug_assertions) {
-        InstanceFlags::VALIDATION | InstanceFlags::DEBUG
-    } else {
-        InstanceFlags::empty()
-    }; // Logic taken from `VulkanHalInstance::init`
-
-    let instance_extensions = VulkanInstance::required_extensions(entry, 0, flags)?;
-    debug!("Instance extensions required by wgpu: {instance_extensions:#?}");
-
-    let has_nv_optimus = unsafe {
-        let instance_layers = entry.enumerate_instance_layer_properties()?;
-        let nv_optimus_layer = CStr::from_bytes_with_nul(b"VK_LAYER_NV_optimus\0")?;
-        instance_layers
-            .iter()
-            .any(|inst_layer| CStr::from_ptr(inst_layer.layer_name.as_ptr()) == nv_optimus_layer)
-    };
-
-    let physical_device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
-    let instance = unsafe {
-        VulkanInstance::from_raw(
-            entry.clone(),
-            instance.clone(),
-            driver_api_version,
-            util::get_android_sdk_version()?,
-            instance_extensions,
-            flags,
-            has_nv_optimus,
-            None,
-            // None indicates that wgpu is *not* responsible for destroying the VkInstance
-            // (in this case, that falls on the libretro frontend)
-        )?
-    };
-
-    let adapter = instance
-        .expose_adapter(physical_device)
-        .ok_or(anyhow::anyhow!("Failed to expose physical device {physical_device:?}"))?;
-
-    let open_device = unsafe {
-        let device_extensions = adapter.adapter.required_device_extensions(adapter.features);
-        adapter.adapter.device_from_raw(
-            device.clone(),
-            false,
-            &device_extensions,
-            adapter.features,
-            0, // TODO: Add interface.queue_family_index()
-            interface.queue_index(), // wgpu assumes this to be 0
-        )?
-    };
-
-    let instance = unsafe { wgpu::Instance::from_hal::<Vulkan>(instance) };
-    let adapter = unsafe { instance.create_adapter_from_hal(adapter) };
-    let (limits, features) = required_limits(&adapter);
-    let (device, queue) = unsafe {
-        adapter.create_device_from_hal(
-            open_device,
-            &wgpu::DeviceDescriptor {
-                label: None,
-                features,
-                limits,
-            },
-            None,
-        )?
-    };
-
-    Ok(Descriptors::new(adapter, device, queue))
 }
