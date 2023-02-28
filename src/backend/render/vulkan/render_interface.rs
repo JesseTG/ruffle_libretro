@@ -26,12 +26,9 @@ impl VulkanRenderInterface {
     pub unsafe fn new(interface: &retro_hw_render_interface_vulkan) -> Result<Self, Box<dyn Error>> {
         let entry =
             ENTRY.clone().unwrap_or_else(|| {
-                let static_fn =
-                    StaticFn::load(|sym: &CStr| {
-                        interface.get_instance_proc_addr.unwrap()(interface.instance, sym.as_ptr())
-                            .unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null()))
-                            as *const c_void
-                    });
+                let static_fn = StaticFn {
+                    get_instance_proc_addr: interface.get_instance_proc_addr.unwrap()
+                };
 
                 warn!("ENTRY not available, creating a new one from the render interface");
                 ash::Entry::from_static_fn(static_fn)

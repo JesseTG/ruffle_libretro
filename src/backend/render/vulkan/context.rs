@@ -135,10 +135,7 @@ unsafe extern "C" fn create_instance(
         return vk::Instance::null();
     }
 
-    let static_fn = StaticFn::load(|sym: &CStr| {
-        get_instance_proc_addr(instance, sym.as_ptr())
-            .unwrap_or(transmute::<*const c_void, unsafe extern "system" fn()>(ptr::null())) as *const c_void
-    });
+    let static_fn = StaticFn { get_instance_proc_addr };
     let entry = ash::Entry::from_static_fn(static_fn.clone());
     let ash_instance = ash::Instance::load(&static_fn, instance);
     ENTRY = Some(entry.clone());
