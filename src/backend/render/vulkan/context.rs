@@ -98,7 +98,7 @@ unsafe extern "C" fn create_instance(
     let create_instance_wrapper = match create_instance_wrapper {
         Some(w) => w,
         None => {
-            error!("Frontend provided a null create_instance_wrapper, cannot create vkInstance");
+            error!("Frontend provided a null create_instance_wrapper, cannot create VkInstance");
             return vk::Instance::null();
         }
     };
@@ -106,7 +106,7 @@ unsafe extern "C" fn create_instance(
     let get_instance_proc_addr = match get_instance_proc_addr {
         Some(p) => p,
         None => {
-            error!("Frontend provided a null get_instance_proc_addr, cannot create vkInstance");
+            error!("Frontend provided a null get_instance_proc_addr, cannot create VkInstance");
             return vk::Instance::null();
         }
     };
