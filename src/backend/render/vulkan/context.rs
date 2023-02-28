@@ -293,8 +293,8 @@ unsafe fn create_device2_impl(
 
     match queue_families {
         QueueFamilies::Single(family) => {
-            info!("Using queue family no. {0} for graphics, compute, and present", family.1);
-            debug!("Details: {0:?}", family.0);
+            info!("Using queue family #{0} for graphics, compute, and present", family.1);
+            debug!("Details: {0:#?}", family.0);
         }
         QueueFamilies::Split {
             graphics_compute,
@@ -304,12 +304,12 @@ unsafe fn create_device2_impl(
                 "Using queue family no. {0} for graphics and compute, family no. {1} for present",
                 graphics_compute.1, present.1
             );
-            debug!("Graphics/compute details: {0:?}", graphics_compute.0);
-            debug!("Present details: {0:?}", present.0);
+            debug!("Graphics/compute details: {0:#?}", graphics_compute.0);
+            debug!("Present details: {0:#?}", present.0);
         }
         QueueFamilies::GraphicsComputeOnly(family) => {
             warn!("Using queue family no. {0} for graphics and compute, but none was found for present.", family.1);
-            debug!("Details: {0:?}", family.0);
+            debug!("Details: {0:#?}", family.0);
         }
     };
 
