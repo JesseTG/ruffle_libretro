@@ -89,26 +89,43 @@ unsafe extern "C" fn get_application_info() -> *const ApplicationInfo {
 }
 
 unsafe extern "C" fn create_instance(
-    get_instance_proc_addr: Option<ash::vk::PFN_vkGetInstanceProcAddr>,
+    get_instance_proc_addr: Option<vk::PFN_vkGetInstanceProcAddr>,
     app: *const ApplicationInfo,
     create_instance_wrapper: retro_vulkan_create_instance_wrapper_t,
     opaque: *mut c_void,
 ) -> vk::Instance {
     debug!("create_instance(..., {app:?}, {create_instance_wrapper:?}, {opaque:?})");
+
+    match create_instance_impl(get_instance_proc_addr, &*app, create_instance_wrapper, opaque) {
+        Ok(instance) => {
+            assert_ne!(
+                instance,
+                vk::Instance::null(),
+                "create_instance_impl shouldn't return VK_NULL_HANDLE, it should return an error instead"
+            );
+            instance
+        }
+        Err(error) => {
+            error!("Failed to create VkInstance: {error}");
+            vk::Instance::null()
+        }
+    }
+}
+
+unsafe fn create_instance_impl(
+    get_instance_proc_addr: Option<vk::PFN_vkGetInstanceProcAddr>,
+    app: &ApplicationInfo,
+    create_instance_wrapper: retro_vulkan_create_instance_wrapper_t,
+    opaque: *mut c_void,
+) -> anyhow::Result<vk::Instance> {
     let create_instance_wrapper = match create_instance_wrapper {
         Some(w) => w,
-        None => {
-            error!("Frontend provided a null create_instance_wrapper, cannot create VkInstance");
-            return vk::Instance::null();
-        }
+        None => bail!("Frontend provided a null create_instance_wrapper"),
     };
 
     let get_instance_proc_addr = match get_instance_proc_addr {
         Some(p) => p,
-        None => {
-            error!("Frontend provided a null get_instance_proc_addr, cannot create VkInstance");
-            return vk::Instance::null();
-        }
+        None => bail!("Frontend provided a null get_instance_proc_addr"),
     };
 
     let required_instance_extensions: Vec<&'static CStr> = vec![
@@ -117,6 +134,7 @@ unsafe extern "C" fn create_instance(
         #[cfg(debug_assertions)]
         ext::DebugUtils::name(),
     ];
+    // TODO: Set this with VulkanInstance::required_extensions
 
     // TODO: vk::ExtSwapchainColorspaceFn is optional, only ask for it if it's available
 
@@ -131,8 +149,7 @@ unsafe extern "C" fn create_instance(
     let instance = create_instance_wrapper(opaque, &instance_create_info);
 
     if instance == vk::Instance::null() {
-        error!("Failed to create VkInstance");
-        return vk::Instance::null();
+        bail!("create_instance_wrapper returned VK_NULL_HANDLE");
     }
 
     let static_fn = StaticFn { get_instance_proc_addr };
@@ -145,9 +162,9 @@ unsafe extern "C" fn create_instance(
     {
         DEBUG_UTILS = Some(ash::extensions::ext::DebugUtils::new(&entry, &ash_instance));
     }
-    instance
-}
 
+    Ok(instance)
+}
 /// Provided to pacify RetroArch, as it still wants create_device defined
 /// even if it uses create_device2 instead
 unsafe extern "C" fn create_device(
