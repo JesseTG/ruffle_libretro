@@ -150,6 +150,7 @@ unsafe fn create_instance_impl(
     let instance_create_info = vk::InstanceCreateInfo::builder()
         .application_info(&*app)
         .enabled_extension_names(&required_instance_extensions)
+        .enabled_layer_names(&[])
         .build();
 
     let instance = create_instance_wrapper(opaque, &instance_create_info);
