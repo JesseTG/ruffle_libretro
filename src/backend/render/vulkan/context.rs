@@ -23,9 +23,9 @@ use rust_libretro_sys::{
 };
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
-use wgpu_hal::{Api, ExposedAdapter, OpenDevice};
+use wgpu_hal::{Api, ExposedAdapter, OpenDevice, InstanceFlags};
 
-use crate::backend::render::vulkan::util::{PropertiesFormat, QueueFamilies, Queues, set_debug_name};
+use crate::backend::render::vulkan::util::{set_debug_name, PropertiesFormat, QueueFamilies, Queues};
 use crate::built_info;
 
 use super::util::QueueFamily;
@@ -128,15 +128,21 @@ unsafe fn create_instance_impl(
         None => bail!("Frontend provided a null get_instance_proc_addr"),
     };
 
-    let required_instance_extensions: Vec<&'static CStr> = vec![
-        khr::Surface::name(),
-        vk::KhrGetPhysicalDeviceProperties2Fn::name(),
-        #[cfg(debug_assertions)]
-        ext::DebugUtils::name(),
-    ];
-    // TODO: Set this with VulkanInstance::required_extensions
+    let static_fn = StaticFn { get_instance_proc_addr };
+    let entry = ash::Entry::from_static_fn(static_fn.clone());
 
-    // TODO: vk::ExtSwapchainColorspaceFn is optional, only ask for it if it's available
+    let driver_api_version = entry.try_enumerate_instance_version()?.unwrap_or(vk::API_VERSION_1_0);
+    // vkEnumerateInstanceVersion isn't available in Vulkan 1.0
+
+    let flags = if cfg!(debug_assertions) {
+        InstanceFlags::VALIDATION | InstanceFlags::DEBUG
+    } else {
+        InstanceFlags::empty()
+    };
+
+    let required_instance_extensions = VulkanInstance::required_extensions(&entry, driver_api_version, flags)?;
+    // This function will strip unsupported instance extensions,
+    // so we don't need to check for them ourselves.
 
     let required_instance_extensions: Vec<*const c_char> =
         required_instance_extensions.iter().map(|c| c.as_ptr()).collect();
@@ -152,8 +158,6 @@ unsafe fn create_instance_impl(
         bail!("create_instance_wrapper returned VK_NULL_HANDLE");
     }
 
-    let static_fn = StaticFn { get_instance_proc_addr };
-    let entry = ash::Entry::from_static_fn(static_fn.clone());
     let ash_instance = ash::Instance::load(&static_fn, instance);
     ENTRY = Some(entry.clone());
     INSTANCE = Some(ash_instance.clone());
