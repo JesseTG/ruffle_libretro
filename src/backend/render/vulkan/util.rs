@@ -13,15 +13,18 @@ use std::fmt::{Debug, Display, Formatter};
 use std::intrinsics::transmute;
 use std::slice::from_raw_parts;
 use wgpu_core::api::Vulkan;
-use wgpu_hal::Api;
-use wgpu_hal::InstanceFlags;
+use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice};
 
-use crate::backend::render::vulkan::VulkanDevice;
 use crate::backend::render::wgpu::required_limits;
 
 use super::render_interface::VulkanRenderInterface;
 
 pub type VulkanInstance = <Vulkan as Api>::Instance;
+pub type VulkanDevice = <Vulkan as Api>::Device;
+pub type VulkanPhysicalDevice = <Vulkan as Api>::Adapter;
+pub type VulkanQueue = <Vulkan as Api>::Queue;
+pub type VulkanPhysicalDeviceInfo = ExposedAdapter<Vulkan>;
+pub type VulkanOpenDevice = OpenDevice<Vulkan>;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct QueueFamily(pub vk::QueueFamilyProperties, pub u32);

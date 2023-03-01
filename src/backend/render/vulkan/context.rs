@@ -28,7 +28,7 @@ use wgpu_hal::{Api, ExposedAdapter, Instance, InstanceFlags, OpenDevice};
 use crate::backend::render::vulkan::util::{set_debug_name, PropertiesFormat, QueueFamilies, Queues};
 use crate::built_info;
 
-use super::util::{get_android_sdk_version, QueueFamily};
+use super::util::{get_android_sdk_version, QueueFamily, VulkanInstance};
 
 #[derive(ThisError, Debug)]
 pub enum VulkanNegotiationError {
@@ -48,12 +48,6 @@ pub enum VulkanNegotiationError {
     CannotExposePhysicalDevice,
 }
 
-type VulkanInstance = <Vulkan as Api>::Instance;
-type VulkanDevice = <Vulkan as Api>::Device;
-type VulkanPhysicalDevice = <Vulkan as Api>::Adapter;
-type VulkanQueue = <Vulkan as Api>::Queue;
-type VulkanPhysicalDeviceInfo = ExposedAdapter<Vulkan>;
-type VulkanOpenDevice = OpenDevice<Vulkan>;
 
 /// This MUST be kept as a constant, and must *not* be given to a CString.
 /// Otherwise you risk undefined behavior; this has already bitten me in the ass.

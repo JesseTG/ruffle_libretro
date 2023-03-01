@@ -29,11 +29,6 @@ use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
 use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice};
 
-type VulkanDevice = <Vulkan as Api>::Device;
-type VulkanPhysicalDevice = <Vulkan as Api>::Adapter;
-type VulkanQueue = <Vulkan as Api>::Queue;
-type VulkanPhysicalDeviceInfo = ExposedAdapter<Vulkan>;
-type VulkanOpenDevice = OpenDevice<Vulkan>;
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
 use self::context::{DEBUG_UTILS, DEVICE, INSTANCE};
