@@ -1,5 +1,6 @@
-use ash::vk;
+use std::fmt::Debug;
 
+use ash::vk;
 use ruffle_render_wgpu::target::RenderTarget;
 use ruffle_render_wgpu::target::RenderTargetFrame;
 use rust_libretro_sys::retro_vulkan_image;
@@ -7,7 +8,6 @@ use wgpu_core::api::Vulkan;
 
 type Error = Box<dyn std::error::Error>;
 
-use std::fmt::Debug;
 
 #[derive(Debug)]
 pub struct RetroTextureTarget {

@@ -1,9 +1,10 @@
+use std::ffi::c_void;
+
 use ash::vk;
-use libc::c_void;
+use rust_libretro_sys::{retro_hw_render_interface_vulkan, retro_vulkan_image};
 use thiserror::Error as ThisError;
 
 use self::VulkanRenderInterfaceError::*;
-use rust_libretro_sys::{retro_hw_render_interface_vulkan, retro_vulkan_image};
 
 #[derive(ThisError, Copy, Clone, Debug)]
 pub enum VulkanRenderInterfaceError {

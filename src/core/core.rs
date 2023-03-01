@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::ffi::CString;
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 use std::ptr;
 use std::slice::from_raw_parts;
 use std::sync::{Arc, Mutex};
@@ -30,14 +30,14 @@ use crate::backend::navigator::RetroNavigatorBackend;
 use crate::backend::render::opengl::OpenGlWgpuRenderBackend;
 use crate::backend::render::vulkan::VulkanWgpuRenderBackend;
 use crate::backend::render::HardwareRenderError::UnsupportedHardwareContext;
-use crate::backend::render::{enable_hw_render, enable_hw_render_negotiation_interface, HardwareRenderCallback};
+use crate::backend::render::{enable_hw_render, enable_hw_render_negotiation_interface};
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
 use crate::core::state::PlayerState::{Active, Pending, Uninitialized};
 use crate::core::{input, Ruffle};
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
-use crate::{backend, built_info, util};
+use crate::{built_info, util};
 
 #[derive(ThisError, Debug)]
 pub enum CoreError {

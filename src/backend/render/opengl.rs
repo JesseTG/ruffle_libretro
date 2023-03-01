@@ -113,7 +113,7 @@ impl RenderBackend for OpenGlWgpuRenderBackend {
         width: u32,
         height: u32,
         commands: CommandList,
-        quality: StageQuality
+        quality: StageQuality,
     ) -> Option<Box<dyn SyncHandle>> {
         self.backend.render_offscreen(handle, width, height, commands, quality)
     }

@@ -1,14 +1,8 @@
 use std::borrow::Cow;
 use std::error::Error;
-use std::ffi::CStr;
 use std::sync::Arc;
 
-use ash::vk;
-use ash::vk::{
-    Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceRange, ImageViewCreateInfo, ImageViewType,
-};
 use gc_arena::MutationContext;
-use log::debug;
 use ruffle_core::swf::Glyph;
 use ruffle_core::Color;
 use ruffle_render::backend::{Context3D, Context3DCommand, RenderBackend, ShapeHandle, ViewportDimensions};
@@ -20,20 +14,17 @@ use ruffle_render::quality::StageQuality;
 use ruffle_render::shape_utils::DistilledShape;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
-use ruffle_render_wgpu::target::{RenderTarget, RenderTargetFrame};
-use rust_libretro::anyhow;
 use rust_libretro_sys::{
-    retro_environment_t, retro_game_geometry, retro_hw_render_interface_vulkan, retro_vulkan_image,
+    retro_environment_t, retro_game_geometry, retro_hw_render_interface_vulkan,
 };
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
-use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice};
 
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
-use self::context::{DEBUG_UTILS, DEVICE, INSTANCE};
+use self::context::INSTANCE;
 use self::target::RetroTextureTarget;
-use self::util::{create_descriptors, set_debug_name};
+use self::util::create_descriptors;
 
 pub mod context;
 pub mod render_interface;
@@ -63,17 +54,17 @@ impl VulkanWgpuRenderBackend {
         unsafe {
             let instance = INSTANCE.as_ref().unwrap();
             let descriptors = create_descriptors(instance, &interface)?;
-        let (width, height) = (geometry.base_width, geometry.base_height);
+            let (width, height) = (geometry.base_width, geometry.base_height);
             let target =
                 RetroTextureTarget::new(&descriptors.device, (width, height), wgpu::TextureFormat::Rgba8Unorm)?;
-        let descriptors = Arc::new(descriptors);
-        let backend = WgpuRenderBackend::new(descriptors.clone(), target)?;
+            let descriptors = Arc::new(descriptors);
+            let backend = WgpuRenderBackend::new(descriptors.clone(), target)?;
 
-        Ok(Self {
-            backend,
-            interface,
-            descriptors,
-        })
+            Ok(Self {
+                backend,
+                interface,
+                descriptors,
+            })
         }
     }
 }
@@ -105,7 +96,7 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         width: u32,
         height: u32,
         commands: CommandList,
-        quality: StageQuality
+        quality: StageQuality,
     ) -> Option<Box<(dyn SyncHandle + 'static)>> {
         self.backend.render_offscreen(handle, width, height, commands, quality)
     }

@@ -1,5 +1,4 @@
 use std::cell::Cell;
-use std::error::Error;
 use std::ffi::{c_int, CString};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -158,7 +157,7 @@ impl StorageBackend for RetroVfsStorageBackend {
         };
 
         if let Some(parent_dir) = path.parent().and_then(|p| Some(PathBuf::from(p))) {
-            if let Err(e) = self.ensure_storage_dir(&parent_dir) {
+            if let Err(_) = self.ensure_storage_dir(&parent_dir) {
                 return false;
             }
         }

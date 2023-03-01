@@ -1,16 +1,10 @@
-use std::error::Error;
 use std::ffi::{c_char, c_uint, c_void, CStr};
 use std::fmt::Debug;
-use std::mem::transmute;
-use std::ptr;
-use std::sync::Once;
 
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::Surface;
-use ash::extensions::{ext, khr};
-use ash::prelude::VkResult;
 use ash::vk::{
-    self, DebugUtilsObjectNameInfoEXT, DeviceCreateInfo, DeviceQueueCreateInfo, Handle, QueueFamilyProperties,
+    self, DeviceCreateInfo, DeviceQueueCreateInfo, QueueFamilyProperties,
     QueueFlags, StaticFn, SurfaceKHR,
 };
 use ash::vk::{ApplicationInfo, PFN_vkGetInstanceProcAddr};
@@ -23,7 +17,7 @@ use rust_libretro_sys::{
 };
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
-use wgpu_hal::{Api, ExposedAdapter, Instance, InstanceFlags, OpenDevice};
+use wgpu_hal::InstanceFlags;
 
 use crate::backend::render::vulkan::util::{set_debug_name, PropertiesFormat, QueueFamilies, Queues};
 use crate::built_info;
@@ -142,7 +136,7 @@ unsafe fn create_instance_impl(
         required_instance_extensions.iter().map(|c| c.as_ptr()).collect();
 
     let instance_create_info = vk::InstanceCreateInfo::builder()
-        .application_info(&*app)
+        .application_info(app)
         .enabled_extension_names(&required_instance_extensions_ptr)
         .enabled_layer_names(&[])
         .build();

@@ -1,8 +1,6 @@
-use std::error::Error;
-use std::ffi::{c_void, CStr};
+use std::ffi::CStr;
 
-use rust_libretro::anyhow::bail;
-use rust_libretro::contexts::{GenericContext, LoadGameContext};
+use rust_libretro::contexts::LoadGameContext;
 use rust_libretro::{anyhow, environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
 use rust_libretro_sys::retro_hw_context_type::*;
 use rust_libretro_sys::{
@@ -10,8 +8,6 @@ use rust_libretro_sys::{
     retro_hw_render_context_negotiation_interface_type, retro_hw_render_interface_type, retro_proc_address_t,
 };
 use thiserror::Error as ThisError;
-
-use crate::backend::render::HardwareRenderError::*;
 
 pub mod opengl;
 pub mod vulkan;

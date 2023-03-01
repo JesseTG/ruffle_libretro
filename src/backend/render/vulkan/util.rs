@@ -1,19 +1,13 @@
+use std::ffi::CStr;
+use std::fmt::{Debug, Formatter};
+
+use ash::extensions::ext::DebugUtils;
 use ash::vk;
-use ash::vk::{ExtensionProperties, LayerProperties};
-use ash::{
-    extensions::ext::DebugUtils,
-    vk::{DebugUtilsObjectNameInfoEXT, Handle},
-};
-use log::debug;
+use ash::vk::{DebugUtilsObjectNameInfoEXT, ExtensionProperties, Handle, LayerProperties};
 use ruffle_render_wgpu::descriptors::Descriptors;
 use rust_libretro::anyhow;
-use std::error::Error;
-use std::ffi::{c_char, c_uint, CStr, CString};
-use std::fmt::{Debug, Display, Formatter};
-use std::intrinsics::transmute;
-use std::slice::from_raw_parts;
 use wgpu_core::api::Vulkan;
-use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice};
+use wgpu_hal::{Api, ExposedAdapter, OpenDevice};
 
 use crate::backend::render::wgpu::required_limits;
 
@@ -150,12 +144,6 @@ impl<'a> Debug for PropertiesFormat<'a, LayerProperties> {
     }
 }
 
-pub fn physical_device_features_any(features: vk::PhysicalDeviceFeatures) -> bool {
-    let features: [vk::Bool32; 55] = unsafe { transmute(features) };
-
-    features.iter().sum::<vk::Bool32>() > 0
-}
-
 pub fn get_android_sdk_version() -> anyhow::Result<u32> {
     #[cfg(not(target_os = "android"))]
     return Ok(0);
@@ -199,7 +187,10 @@ pub unsafe fn set_debug_name<T: Handle + Debug + Copy>(
     }
 }
 
-pub unsafe fn create_descriptors(instance: &wgpu::Instance, interface: &VulkanRenderInterface) -> anyhow::Result<Descriptors> {
+pub unsafe fn create_descriptors(
+    instance: &wgpu::Instance,
+    interface: &VulkanRenderInterface,
+) -> anyhow::Result<Descriptors> {
     let instance_hal = instance.as_hal::<Vulkan>().unwrap();
     let shared_instance = instance_hal.shared_instance();
     let gpu = interface.gpu();
