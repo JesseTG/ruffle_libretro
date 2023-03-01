@@ -29,7 +29,6 @@ use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
 use wgpu_hal::{Api, ExposedAdapter, InstanceFlags, OpenDevice};
 
-type VulkanInstance = <Vulkan as Api>::Instance;
 type VulkanDevice = <Vulkan as Api>::Device;
 type VulkanPhysicalDevice = <Vulkan as Api>::Adapter;
 type VulkanQueue = <Vulkan as Api>::Queue;
@@ -37,7 +36,7 @@ type VulkanPhysicalDeviceInfo = ExposedAdapter<Vulkan>;
 type VulkanOpenDevice = OpenDevice<Vulkan>;
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
-use self::context::{DEBUG_UTILS, DEVICE};
+use self::context::{DEBUG_UTILS, DEVICE, INSTANCE};
 use self::target::RetroTextureTarget;
 use self::util::{create_descriptors, set_debug_name};
 
@@ -64,13 +63,15 @@ impl VulkanWgpuRenderBackend {
         geometry: &retro_game_geometry,
         hw_render: &retro_hw_render_interface_vulkan,
     ) -> Result<Self, Box<dyn Error>> {
-        let interface = unsafe { VulkanRenderInterface::new(hw_render)? };
-        let descriptors = create_descriptors(&interface)?;
-        let (width, height) = (geometry.base_width, geometry.base_height);
-        let target = RetroTextureTarget::new(&descriptors.device, (width, height), wgpu::TextureFormat::Rgba8Unorm)?;
-        let descriptors = Arc::new(descriptors);
+        let interface = VulkanRenderInterface::new(hw_render)?;
 
         unsafe {
+            let instance = INSTANCE.as_ref().unwrap();
+            let descriptors = create_descriptors(instance, &interface)?;
+        let (width, height) = (geometry.base_width, geometry.base_height);
+            let target =
+                RetroTextureTarget::new(&descriptors.device, (width, height), wgpu::TextureFormat::Rgba8Unorm)?;
+        let descriptors = Arc::new(descriptors);
         let backend = WgpuRenderBackend::new(descriptors.clone(), target)?;
 
         Ok(Self {
@@ -173,9 +174,11 @@ impl RenderBackend for VulkanWgpuRenderBackend {
 impl Drop for VulkanWgpuRenderBackend {
     fn drop(&mut self) {
         unsafe {
-            let device = self.interface.device();
+            self.interface.wait_sync_index();
+            let device = &self.descriptors.device;
+            let device = device.as_hal::<Vulkan, _, _>(|c| c.unwrap().raw_device().clone());
             device.destroy_image_view(self.backend.target().get_image_view(), None);
-        } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did.
+        } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did
 
         // Also, don't destroy self.device or self.instance;
         // we created them, but RetroArch took ownership of them,

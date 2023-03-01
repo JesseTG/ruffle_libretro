@@ -23,12 +23,12 @@ use rust_libretro_sys::{
 };
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
-use wgpu_hal::{Api, ExposedAdapter, OpenDevice, InstanceFlags};
+use wgpu_hal::{Api, ExposedAdapter, Instance, InstanceFlags, OpenDevice};
 
 use crate::backend::render::vulkan::util::{set_debug_name, PropertiesFormat, QueueFamilies, Queues};
 use crate::built_info;
 
-use super::util::QueueFamily;
+use super::util::{get_android_sdk_version, QueueFamily};
 
 #[derive(ThisError, Debug)]
 pub enum VulkanNegotiationError {
@@ -62,7 +62,7 @@ const APPLICATION_NAME: &[u8] = b"ruffle_libretro\0";
 
 static mut APPLICATION_INFO: Option<ApplicationInfo> = None;
 pub(super) static mut ENTRY: Option<ash::Entry> = None;
-pub(super) static mut INSTANCE: Option<ash::Instance> = None;
+pub(super) static mut INSTANCE: Option<wgpu::Instance> = None;
 pub(super) static mut DEVICE: Option<ash::Device> = None;
 
 #[cfg(debug_assertions)]
@@ -144,31 +144,56 @@ unsafe fn create_instance_impl(
     // This function will strip unsupported instance extensions,
     // so we don't need to check for them ourselves.
 
-    let required_instance_extensions: Vec<*const c_char> =
+    let required_instance_extensions_ptr: Vec<*const c_char> =
         required_instance_extensions.iter().map(|c| c.as_ptr()).collect();
 
     let instance_create_info = vk::InstanceCreateInfo::builder()
         .application_info(&*app)
-        .enabled_extension_names(&required_instance_extensions)
+        .enabled_extension_names(&required_instance_extensions_ptr)
         .enabled_layer_names(&[])
         .build();
 
-    let instance = create_instance_wrapper(opaque, &instance_create_info);
+    let vk_instance = create_instance_wrapper(opaque, &instance_create_info);
 
-    if instance == vk::Instance::null() {
+    if vk_instance == vk::Instance::null() {
         bail!("create_instance_wrapper returned VK_NULL_HANDLE");
     }
 
-    let ash_instance = ash::Instance::load(&static_fn, instance);
-    ENTRY = Some(entry.clone());
-    INSTANCE = Some(ash_instance.clone());
+    // TODO: Clean up vk_instance if any function beyond here returns an error
+    let has_nv_optimus = {
+        let instance_layers = entry.enumerate_instance_layer_properties()?;
+        let nv_optimus_layer = CStr::from_bytes_with_nul(b"VK_LAYER_NV_optimus\0")?;
+        instance_layers
+            .iter()
+            .any(|layer| CStr::from_ptr(layer.layer_name.as_ptr()) == nv_optimus_layer)
+    };
 
+    let ash_instance = ash::Instance::load(&static_fn, vk_instance);
     #[cfg(debug_assertions)]
     {
         DEBUG_UTILS = Some(ash::extensions::ext::DebugUtils::new(&entry, &ash_instance));
     }
 
-    Ok(instance)
+    let instance = unsafe {
+        VulkanInstance::from_raw(
+            entry.clone(),
+            ash_instance,
+            driver_api_version,
+            get_android_sdk_version()?,
+            required_instance_extensions,
+            flags,
+            has_nv_optimus,
+            None,
+            // None indicates that wgpu is *not* responsible for destroying the VkInstance
+            // (in this case, that falls on the libretro frontend)
+        )?
+    };
+
+    let instance = wgpu::Instance::from_hal::<Vulkan>(instance);
+    ENTRY = Some(entry);
+    INSTANCE = Some(instance);
+
+    Ok(vk_instance)
 }
 /// Provided to pacify RetroArch, as it still wants create_device defined
 /// even if it uses create_device2 instead
@@ -212,7 +237,11 @@ unsafe fn create_device2_impl(
         .expect("ENTRY should've been initialized in create_instance");
     let instance = INSTANCE
         .as_ref()
-        .expect("INSTANCE should've been initialized in create_instance");
+        .expect("INSTANCE should've been initialized in create_instance")
+        .as_hal::<Vulkan>()
+        .expect("INSTANCE should be based on Vulkan")
+        .shared_instance()
+        .raw_instance();
 
     #[cfg(debug_assertions)]
     let debug_utils = DEBUG_UTILS

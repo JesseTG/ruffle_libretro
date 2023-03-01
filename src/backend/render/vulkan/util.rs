@@ -16,11 +16,12 @@ use wgpu_core::api::Vulkan;
 use wgpu_hal::Api;
 use wgpu_hal::InstanceFlags;
 
+use crate::backend::render::vulkan::VulkanDevice;
 use crate::backend::render::wgpu::required_limits;
 
 use super::render_interface::VulkanRenderInterface;
 
-type VulkanInstance = <Vulkan as Api>::Instance;
+pub type VulkanInstance = <Vulkan as Api>::Instance;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct QueueFamily(pub vk::QueueFamilyProperties, pub u32);
@@ -195,55 +196,24 @@ pub unsafe fn set_debug_name<T: Handle + Debug + Copy>(
     }
 }
 
-pub fn create_descriptors(interface: &VulkanRenderInterface) -> anyhow::Result<Descriptors> {
-    let entry = interface.entry();
-    let instance = interface.instance();
-    let physical_device = interface.physical_device();
+pub unsafe fn create_descriptors(instance: &wgpu::Instance, interface: &VulkanRenderInterface) -> anyhow::Result<Descriptors> {
+    let instance_hal = instance.as_hal::<Vulkan>().unwrap();
+    let shared_instance = instance_hal.shared_instance();
+    let gpu = interface.gpu();
     let device = interface.device();
 
-    let driver_api_version = entry.try_enumerate_instance_version()?.unwrap_or(vk::API_VERSION_1_0);
-    // vkEnumerateInstanceVersion isn't available in Vulkan 1.0
-
-    let flags = if cfg!(debug_assertions) {
-        InstanceFlags::VALIDATION | InstanceFlags::DEBUG
-    } else {
-        InstanceFlags::empty()
-    }; // Logic taken from `VulkanHalInstance::init`
-
-    let instance_extensions = VulkanInstance::required_extensions(entry, 0, flags)?;
-    debug!("Instance extensions required by wgpu: {instance_extensions:#?}");
-
-    let has_nv_optimus = unsafe {
-        let instance_layers = entry.enumerate_instance_layer_properties()?;
-        let nv_optimus_layer = CStr::from_bytes_with_nul(b"VK_LAYER_NV_optimus\0")?;
-        instance_layers
-            .iter()
-            .any(|inst_layer| CStr::from_ptr(inst_layer.layer_name.as_ptr()) == nv_optimus_layer)
+    let adapter = unsafe {
+        instance
+            .as_hal::<Vulkan>()
+            .unwrap()
+            .expose_adapter(gpu)
+            .ok_or(anyhow::anyhow!("Failed to expose physical device {gpu:?}"))?
     };
-
-    let instance = unsafe {
-        VulkanInstance::from_raw(
-            entry.clone(),
-            instance.clone(),
-            driver_api_version,
-            get_android_sdk_version()?,
-            instance_extensions,
-            flags,
-            has_nv_optimus,
-            None,
-            // None indicates that wgpu is *not* responsible for destroying the VkInstance
-            // (in this case, that falls on the libretro frontend)
-        )?
-    };
-
-    let adapter = instance
-        .expose_adapter(physical_device)
-        .ok_or(anyhow::anyhow!("Failed to expose physical device {physical_device:?}"))?;
 
     let open_device = unsafe {
         let device_extensions = adapter.adapter.required_device_extensions(adapter.features);
         adapter.adapter.device_from_raw(
-            device.clone(),
+            ash::Device::load(shared_instance.raw_instance().fp_v1_0(), device),
             false,
             &device_extensions,
             adapter.features,
@@ -252,7 +222,6 @@ pub fn create_descriptors(interface: &VulkanRenderInterface) -> anyhow::Result<D
         )?
     };
 
-    let instance = unsafe { wgpu::Instance::from_hal::<Vulkan>(instance) };
     let adapter = unsafe { instance.create_adapter_from_hal(adapter) };
     let (limits, features) = required_limits(&adapter);
     let (device, queue) = unsafe {
