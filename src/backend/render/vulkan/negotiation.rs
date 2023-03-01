@@ -344,7 +344,7 @@ unsafe fn create_device2_impl(
 
     debug!("Created VkDevice {:?}", device.handle());
 
-    set_debug_name(debug_utils, &device, instance.handle(), b"Ruffle Instance\0");
+    //set_debug_name(debug_utils, &device, instance.handle(), b"Ruffle Instance\0");
     set_debug_name(debug_utils, &device, device.handle(), b"Ruffle-Created Device\0");
     set_debug_name(debug_utils, &device, gpu, b"Ruffle GPU\0");
 
@@ -605,6 +605,8 @@ fn create_logical_device(
     let device_create_info = DeviceCreateInfo::builder()
         .queue_create_infos(queue_create_infos)
         .push_next(&mut physical_device_vulkan_12_features)
+        .enabled_extension_names(&[])
+        .enabled_layer_names(&[])
         // .flags(DeviceCreateFlags) VkDeviceCreateFlags is empty, currently reserved
         .build();
 
@@ -620,7 +622,6 @@ pub fn enable(ctx: &mut LoadGameContext) -> anyhow::Result<()> {
             Some(create_instance),
             Some(create_device2),
         )?;
-
         debug!("Enabled retro_hw_render_context_negotiation_interface_vulkan");
         Ok(())
     }

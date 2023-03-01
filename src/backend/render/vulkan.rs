@@ -22,11 +22,11 @@ use wgpu_hal::api::Vulkan;
 
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
-use self::context::INSTANCE;
+use self::negotiation::INSTANCE;
 use self::target::RetroTextureTarget;
 use self::util::create_descriptors;
 
-pub mod context;
+pub mod negotiation;
 pub mod render_interface;
 mod target;
 mod util;

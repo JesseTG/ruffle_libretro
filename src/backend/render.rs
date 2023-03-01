@@ -139,7 +139,7 @@ pub fn enable_hw_render_negotiation_interface(
     preferred_renderer: retro_hw_context_type,
 ) -> anyhow::Result<()> {
     if preferred_renderer == RETRO_HW_CONTEXT_VULKAN {
-        vulkan::context::enable(ctx)?;
+        vulkan::negotiation::enable(ctx)?;
     }
 
     // Enable the Vulkan context negotiation interface if using Vulkan,
