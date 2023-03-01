@@ -1,169 +1,175 @@
-use ash::{
-    vk,
-    vk::{Semaphore, StaticFn},
-};
+use ash::vk;
 use libc::c_void;
-use log::warn;
-use std::ptr;
-use std::{error::Error, ffi::CStr, mem::transmute};
+use thiserror::Error as ThisError;
 
+use self::VulkanRenderInterfaceError::*;
 use rust_libretro_sys::{retro_hw_render_interface_vulkan, retro_vulkan_image};
 
-use crate::backend::render::HardwareRenderError;
-use crate::backend::render::HardwareRenderError::*;
+#[derive(ThisError, Copy, Clone, Debug)]
+pub enum VulkanRenderInterfaceError {
+    #[error("Render interface function {0} was null")]
+    NullInterfaceFunction(&'static str),
 
-use super::context::{DEVICE, ENTRY, INSTANCE};
+    #[error("Interface handle was null")]
+    NullHandle,
+
+    #[error("VkInstance was null")]
+    NullInstance,
+
+    #[error("VkPhysicalDevice was null")]
+    NullPhysicalDevice,
+
+    #[error("VkDevice was null")]
+    NullDevice,
+
+    #[error("VkQueue was null")]
+    NullQueue,
+}
 
 pub struct VulkanRenderInterface {
-    // We don't own this
-    interface: retro_hw_render_interface_vulkan,
-    entry: ash::Entry,
-    instance: ash::Instance,
-    device: ash::Device,
+    handle: *mut c_void,
+    instance: vk::Instance,
+    gpu: vk::PhysicalDevice,
+    device: vk::Device,
+    queue: vk::Queue,
+    queue_index: u32,
+    set_image: unsafe extern "C" fn(*mut c_void, *const retro_vulkan_image, u32, *const vk::Semaphore, u32),
+    get_sync_index: unsafe extern "C" fn(*mut c_void) -> u32,
+    get_sync_index_mask: unsafe extern "C" fn(*mut c_void) -> u32,
+    wait_sync_index: unsafe extern "C" fn(*mut c_void),
+    lock_queue: unsafe extern "C" fn(*mut c_void),
+    unlock_queue: unsafe extern "C" fn(*mut c_void),
+    set_command_buffers: unsafe extern "C" fn(*mut c_void, u32, *const vk::CommandBuffer),
+    set_signal_semaphore: unsafe extern "C" fn(*mut c_void, vk::Semaphore),
 }
 
 impl VulkanRenderInterface {
-    pub unsafe fn new(interface: &retro_hw_render_interface_vulkan) -> Result<Self, Box<dyn Error>> {
-        let entry =
-            ENTRY.clone().unwrap_or_else(|| {
-                let static_fn = StaticFn {
-                    get_instance_proc_addr: interface.get_instance_proc_addr.unwrap()
-                };
+    pub fn new(interface: &retro_hw_render_interface_vulkan) -> Result<Self, VulkanRenderInterfaceError> {
+        if interface.handle.is_null() {
+            Err(NullHandle)?;
+        }
 
-                warn!("ENTRY not available, creating a new one from the render interface");
-                ash::Entry::from_static_fn(static_fn)
-            });
+        if interface.instance == vk::Instance::null() {
+            Err(NullInstance)?;
+        }
 
-        let instance = INSTANCE
-            .clone()
-            .unwrap_or_else(|| ash::Instance::load(entry.static_fn(), interface.instance));
-        let device = DEVICE
-            .clone()
-            .unwrap_or_else(|| ash::Device::load(instance.fp_v1_0(), interface.device));
-        // TODO: Ensure that the handles provided by interface are the same as in the statics
+        if interface.gpu == vk::PhysicalDevice::null() {
+            Err(NullPhysicalDevice)?;
+        }
+
+        if interface.device == vk::Device::null() {
+            Err(NullDevice)?;
+        }
+
+        if interface.queue == vk::Queue::null() {
+            Err(NullQueue)?;
+        }
+
+        let get_sync_index = interface
+            .get_sync_index
+            .ok_or(NullInterfaceFunction("get_sync_index"))?;
+
+        let set_image = interface.set_image.ok_or(NullInterfaceFunction("set_image"))?;
+
+        let get_sync_index_mask = interface
+            .get_sync_index_mask
+            .ok_or(NullInterfaceFunction("get_sync_index_mask"))?;
+
+        let wait_sync_index = interface
+            .wait_sync_index
+            .ok_or(NullInterfaceFunction("wait_sync_index"))?;
+
+        let lock_queue = interface.lock_queue.ok_or(NullInterfaceFunction("lock_queue"))?;
+
+        let unlock_queue = interface.unlock_queue.ok_or(NullInterfaceFunction("unlock_queue"))?;
+
+        let set_command_buffers = interface
+            .set_command_buffers
+            .ok_or(NullInterfaceFunction("set_command_buffers"))?;
+
+        let set_signal_semaphore = interface
+            .set_signal_semaphore
+            .ok_or(NullInterfaceFunction("set_signal_semaphore"))?;
 
         Ok(Self {
-            interface: interface.clone(),
-            entry,
-            instance,
-            device,
+            handle: interface.handle,
+            instance: interface.instance,
+            gpu: interface.gpu,
+            device: interface.device,
+            queue: interface.queue,
+            queue_index: interface.queue_index,
+            set_image,
+            get_sync_index,
+            get_sync_index_mask,
+            wait_sync_index,
+            lock_queue,
+            unlock_queue,
+            set_command_buffers,
+            set_signal_semaphore,
         })
     }
 
-    pub fn instance(&self) -> &ash::Instance {
-        &self.instance
+    pub fn instance(&self) -> vk::Instance {
+        self.instance
     }
 
-    pub fn device(&self) -> &ash::Device {
-        &self.device
+    pub fn device(&self) -> vk::Device {
+        self.device
     }
 
-    pub fn entry(&self) -> &ash::Entry {
-        &self.entry
-    }
-
-    pub fn physical_device(&self) -> vk::PhysicalDevice {
-        self.interface.gpu
+    pub fn gpu(&self) -> vk::PhysicalDevice {
+        self.gpu
     }
 
     pub fn queue_index(&self) -> u32 {
-        self.interface.queue_index
+        self.queue_index
     }
 
     pub fn queue(&self) -> vk::Queue {
-        self.interface.queue
+        self.queue
     }
 
-    pub fn set_image(
-        &self,
-        image: &retro_vulkan_image,
-        semaphores: &[Semaphore],
-        src_queue_family: u32,
-    ) -> Result<(), HardwareRenderError> {
+    pub fn set_image(&self, image: &retro_vulkan_image, semaphores: &[vk::Semaphore], src_queue_family: u32) {
         unsafe {
-            let set_image = self.interface.set_image.ok_or(NullInterfaceFunction("set_image"))?;
-            set_image(self.interface.handle, image, semaphores.len() as u32, semaphores.as_ptr(), src_queue_family);
-            Ok(())
+            (self.set_image)(self.handle, image, semaphores.len() as u32, semaphores.as_ptr(), src_queue_family);
         }
     }
 
-    pub fn get_sync_index(&self) -> Result<u32, HardwareRenderError> {
-        unsafe {
-            let get_sync_index = self
-                .interface
-                .get_sync_index
-                .ok_or(NullInterfaceFunction("get_sync_index"))?;
+    pub fn get_sync_index(&self) -> u32 {
+        unsafe { (self.get_sync_index)(self.handle) }
+    }
 
-            Ok(get_sync_index(self.interface.handle))
+    pub fn get_sync_index_mask(&self) -> u32 {
+        unsafe { (self.get_sync_index_mask)(self.handle) }
+    }
+
+    pub fn wait_sync_index(&self) {
+        unsafe {
+            (self.wait_sync_index)(self.handle);
         }
     }
 
-    pub fn get_sync_index_mask(&self) -> Result<u32, HardwareRenderError> {
+    pub fn lock_queue(&self) {
         unsafe {
-            let get_sync_index_mask = self
-                .interface
-                .get_sync_index_mask
-                .ok_or(NullInterfaceFunction("get_sync_index_mask"))?;
-
-            Ok(get_sync_index_mask(self.interface.handle))
+            (self.lock_queue)(self.handle);
         }
     }
 
-    pub fn wait_sync_index(&self) -> Result<(), HardwareRenderError> {
+    pub fn unlock_queue(&self) {
         unsafe {
-            let wait_sync_index = self
-                .interface
-                .wait_sync_index
-                .ok_or(NullInterfaceFunction("wait_sync_index"))?;
-
-            wait_sync_index(self.interface.handle);
-            Ok(())
+            (self.unlock_queue)(self.handle);
         }
     }
 
-    pub fn lock_queue(&self) -> Result<(), HardwareRenderError> {
+    pub fn set_command_buffers(&self, cmd: &[vk::CommandBuffer]) {
         unsafe {
-            let lock_queue = self.interface.lock_queue.ok_or(NullInterfaceFunction("lock_queue"))?;
-
-            lock_queue(self.interface.handle);
-            Ok(())
+            (self.set_command_buffers)(self.handle, cmd.len() as u32, cmd.as_ptr());
         }
     }
 
-    pub fn unlock_queue(&self) -> Result<(), HardwareRenderError> {
+    pub fn set_signal_semaphore(&self, semaphore: vk::Semaphore) {
         unsafe {
-            let unlock_queue = self
-                .interface
-                .unlock_queue
-                .ok_or(NullInterfaceFunction("unlock_queue"))?;
-
-            unlock_queue(self.interface.handle);
-            Ok(())
-        }
-    }
-
-    pub fn set_command_buffers(&self, cmd: &[vk::CommandBuffer]) -> Result<(), HardwareRenderError> {
-        unsafe {
-            let set_command_buffers = self
-                .interface
-                .set_command_buffers
-                .ok_or(NullInterfaceFunction("set_command_buffers"))?;
-            let ptr = if !cmd.is_empty() { cmd.as_ptr() } else { ptr::null() };
-
-            set_command_buffers(self.interface.handle, cmd.len() as u32, ptr);
-            Ok(())
-        }
-    }
-
-    pub fn set_signal_semaphore(&self, semaphore: vk::Semaphore) -> Result<(), HardwareRenderError> {
-        unsafe {
-            let set_signal_semaphore = self
-                .interface
-                .set_signal_semaphore
-                .ok_or(NullInterfaceFunction("set_signal_semaphore"))?;
-
-            set_signal_semaphore(self.interface.handle, semaphore);
-            Ok(())
+            (self.set_signal_semaphore)(self.handle, semaphore);
         }
     }
 }
