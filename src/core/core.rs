@@ -347,6 +347,13 @@ impl Core for Ruffle {
 
     fn on_hw_context_destroyed(&mut self, ctx: &mut GenericContext) {
         unsafe {
+            {
+                let device = negotiation::DEVICE.as_ref().unwrap();
+                if let Err(e) = device.device_wait_idle() {
+                    warn!("on_hw_context_destroyed: vkDeviceWaitIdle({:?}) failed with {e}", device.handle());
+                }
+            } // Scoped to prevent misuse after being dropped
+
             negotiation::DEVICE = None;
             negotiation::INSTANCE = None;
             negotiation::ENTRY = None;
