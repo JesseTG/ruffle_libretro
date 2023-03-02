@@ -363,7 +363,7 @@ impl Core for Ruffle {
             Active(_) => {
                 self.player = Exiting;
                 ctx.shutdown();
-                }
+            }
             _ => {
                 warn!("Destroying hardware context without an active player");
             }

@@ -536,7 +536,7 @@ fn create_logical_device(
 
     unsafe {
         instance.get_physical_device_features2(physical_device, &mut physical_device_features2);
-    } // TODO: Move these extension objects to the constructor so the various initialization phases can query for them
+    }
 
     debug!("VkPhysicalDeviceFeatures2: {physical_device_features2:#?}");
     debug!("VkPhysicalDeviceVulkan12Features: {physical_device_vulkan_12_features:#?}");
