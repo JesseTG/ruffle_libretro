@@ -167,26 +167,6 @@ pub fn get_android_sdk_version() -> anyhow::Result<u32> {
     };
 }
 
-#[cfg(debug_assertions)]
-pub unsafe fn set_debug_name<T: Handle + Debug + Copy>(
-    debug_utils: &DebugUtils,
-    device: &ash::Device,
-    handle: T,
-    name: &[u8],
-) {
-    use log::warn;
-
-    let device = device.handle();
-    let object_name_info = DebugUtilsObjectNameInfoEXT::builder()
-        .object_handle(handle.as_raw())
-        .object_type(T::TYPE)
-        .object_name(CStr::from_bytes_with_nul(name).unwrap());
-
-    if let Err(e) = debug_utils.set_debug_utils_object_name(device, &object_name_info) {
-        warn!("vkSetDebugUtilsObjectNameEXT failed on {handle:?}: {e}");
-    }
-}
-
 pub unsafe fn create_descriptors(
     instance: &wgpu::Instance,
     interface: &VulkanRenderInterface,

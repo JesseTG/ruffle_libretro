@@ -17,7 +17,7 @@ use wgpu_hal::api::Vulkan;
 use wgpu_hal::InstanceFlags;
 
 use crate::backend::render::vulkan::global;
-use crate::backend::render::vulkan::util::{set_debug_name, PropertiesFormat, QueueFamilies, Queues};
+use crate::backend::render::vulkan::util::{PropertiesFormat, QueueFamilies, Queues};
 use crate::built_info;
 
 use super::util::{get_android_sdk_version, QueueFamily, VulkanInstance};
@@ -336,32 +336,7 @@ unsafe fn create_device2_impl(
 
     debug!("Created VkDevice {:?}", device.handle());
 
-    //set_debug_name(debug_utils, &device, instance.handle(), b"Ruffle Instance\0");
-    set_debug_name(debug_utils, &device, device.handle(), b"Ruffle-Created Device\0");
-    set_debug_name(debug_utils, &device, gpu, b"Ruffle GPU\0");
-
     let queues = Queues::new(&device, &queue_families);
-
-    #[cfg(debug_assertions)]
-    match queues {
-        Queues::Single(q) => {
-            set_debug_name(debug_utils, &device, q.0, b"Ruffle-Selected Gfx/Compute/Present Queue\0");
-        }
-        Queues::Split {
-            graphics_compute,
-            present,
-        } => {
-            set_debug_name(debug_utils, &device, graphics_compute.0, b"Ruffle-Selected Gfx/Compute Queue\0");
-            set_debug_name(debug_utils, &device, present.0, b"Ruffle-Selected Present Queue\0");
-        }
-        Queues::GraphicsComputeOnly(q) => {
-            set_debug_name(debug_utils, &device, q.0, b"Ruffle-Selected Gfx/Compute Queue\0");
-        }
-    };
-
-    if let Some(surface) = surface {
-        set_debug_name(debug_utils, &device, surface, b"RetroArch Surface\0");
-    }
 
     global::DEVICE = Some(device.clone());
 
