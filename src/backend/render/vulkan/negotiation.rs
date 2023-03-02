@@ -49,12 +49,12 @@ pub enum VulkanNegotiationError {
 const APPLICATION_NAME: &[u8] = b"ruffle_libretro\0";
 
 static mut APPLICATION_INFO: Option<ApplicationInfo> = None;
-pub(super) static mut ENTRY: Option<ash::Entry> = None;
-pub(super) static mut INSTANCE: Option<wgpu::Instance> = None;
-pub(super) static mut DEVICE: Option<ash::Device> = None;
+pub(crate) static mut ENTRY: Option<ash::Entry> = None;
+pub(crate) static mut INSTANCE: Option<wgpu::Instance> = None;
+pub(crate) static mut DEVICE: Option<ash::Device> = None;
 
 #[cfg(debug_assertions)]
-pub(super) static mut DEBUG_UTILS: Option<DebugUtils> = None;
+pub(crate) static mut DEBUG_UTILS: Option<DebugUtils> = None;
 
 unsafe extern "C" fn get_application_info() -> *const ApplicationInfo {
     debug!("get_application_info()");
@@ -425,18 +425,6 @@ unsafe extern "C" fn create_device2(
     };
 }
 
-unsafe extern "C" fn destroy_device() {
-    APPLICATION_INFO = None;
-    ENTRY = None;
-    INSTANCE = None;
-    DEVICE = None;
-
-    #[cfg(debug_assertions)]
-    {
-        DEBUG_UTILS = None;
-    }
-}
-
 // The frontend will request certain extensions and layers for a device which is created.
 // The core must ensure that the queue and queue_family_index support GRAPHICS and COMPUTE.
 fn select_physical_device(instance: &ash::Instance) -> anyhow::Result<vk::PhysicalDevice> {
@@ -618,7 +606,7 @@ pub fn enable(ctx: &mut LoadGameContext) -> anyhow::Result<()> {
         ctx.enable_hw_render_negotiation_interface_vulkan(
             Some(get_application_info),
             Some(create_device),
-            Some(destroy_device),
+            None,
             Some(create_instance),
             Some(create_device2),
         )?;

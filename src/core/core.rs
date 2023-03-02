@@ -28,7 +28,7 @@ use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::navigator::RetroNavigatorBackend;
 use crate::backend::render::opengl::OpenGlWgpuRenderBackend;
-use crate::backend::render::vulkan::VulkanWgpuRenderBackend;
+use crate::backend::render::vulkan::{negotiation, VulkanWgpuRenderBackend};
 use crate::backend::render::HardwareRenderError::UnsupportedHardwareContext;
 use crate::backend::render::{enable_hw_render, enable_hw_render_negotiation_interface};
 use crate::backend::storage::RetroVfsStorageBackend;
@@ -345,7 +345,18 @@ impl Core for Ruffle {
         };
     }
 
-    fn on_hw_context_destroyed(&mut self, ctx: &mut GenericContext) {}
+    fn on_hw_context_destroyed(&mut self, ctx: &mut GenericContext) {
+        unsafe {
+            negotiation::DEVICE = None;
+            negotiation::INSTANCE = None;
+            negotiation::ENTRY = None;
+
+            #[cfg(debug_assertions)]
+            {
+                negotiation::DEBUG_UTILS = None;
+            }
+        }
+    }
 
     fn on_core_options_update_display(&mut self) -> bool {
         todo!()
