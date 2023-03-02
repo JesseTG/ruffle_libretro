@@ -333,6 +333,7 @@ unsafe fn create_device2_impl(
         let instance_fn = instance.fp_v1_0();
         ash::Device::load(instance_fn, device)
     })?;
+    // Remember to clean up device if any function below this point fails!
 
     debug!("Created VkDevice {:?}", device.handle());
 
@@ -386,7 +387,6 @@ unsafe extern "C" fn create_device2(
         }
         Err(error) => {
             error!("Failed to create VkDevice: {error}");
-            // TODO: Clean up logical device if the below functions fail
             return false;
         }
     };
