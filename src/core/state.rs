@@ -7,4 +7,5 @@ pub enum PlayerState {
     Uninitialized,
     Pending(Cell<PlayerBuilder>),
     Active(Arc<Mutex<Player>>),
+    Exiting,
 }

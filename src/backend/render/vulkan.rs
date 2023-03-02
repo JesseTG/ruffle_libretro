@@ -3,6 +3,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use gc_arena::MutationContext;
+use log::{warn, debug};
 use ruffle_core::swf::Glyph;
 use ruffle_core::Color;
 use ruffle_render::backend::{Context3D, Context3DCommand, RenderBackend, ShapeHandle, ViewportDimensions};
@@ -14,18 +15,16 @@ use ruffle_render::quality::StageQuality;
 use ruffle_render::shape_utils::DistilledShape;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
-use rust_libretro_sys::{
-    retro_environment_t, retro_game_geometry, retro_hw_render_interface_vulkan,
-};
+use rust_libretro_sys::{retro_environment_t, retro_game_geometry, retro_hw_render_interface_vulkan};
 use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
 
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
 
-use self::negotiation::INSTANCE;
 use self::target::RetroTextureTarget;
 use self::util::create_descriptors;
 
+mod global;
 pub mod negotiation;
 pub mod render_interface;
 mod target;
@@ -52,7 +51,7 @@ impl VulkanWgpuRenderBackend {
         let interface = VulkanRenderInterface::new(hw_render)?;
 
         unsafe {
-            let instance = INSTANCE.as_ref().unwrap();
+            let instance = global::INSTANCE.as_ref().unwrap();
             let descriptors = create_descriptors(instance, &interface)?;
             let (width, height) = (geometry.base_width, geometry.base_height);
             let target =
@@ -159,15 +158,37 @@ impl RenderBackend for VulkanWgpuRenderBackend {
 
 impl Drop for VulkanWgpuRenderBackend {
     fn drop(&mut self) {
+        debug!("VulkanWgpuRenderBackend::drop()");
         unsafe {
-            self.interface.wait_sync_index();
-            let device = &self.descriptors.device;
-            let device = device.as_hal::<Vulkan, _, _>(|c| c.unwrap().raw_device().clone());
-            device.destroy_image_view(self.backend.target().get_image_view(), None);
-        } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did
+            if global::DEVICE.is_none() {
+                return;
+            }
 
-        // Also, don't destroy self.device or self.instance;
-        // we created them, but RetroArch took ownership of them,
-        // so it's responsible for cleanup.
+            {
+                self.interface.wait_sync_index();
+                let device = &self.descriptors.device;
+                let device = device.as_hal::<Vulkan, _, _>(|c| c.unwrap().raw_device().clone());
+                device.destroy_image_view(self.backend.target().get_image_view(), None);
+            } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did
+
+            // Also, don't destroy self.device or self.instance;
+            // we created them, but RetroArch took ownership of them,
+            // so it's responsible for cleanup.
+            {
+                let device = global::DEVICE.as_ref().unwrap();
+                if let Err(e) = device.device_wait_idle() {
+                    warn!("vkDeviceWaitIdle({:?}) failed with {e}", device.handle());
+                }
+            } // Scoped to prevent misuse after being dropped
+
+            global::DEVICE = None;
+            global::INSTANCE = None;
+            global::ENTRY = None;
+
+            #[cfg(debug_assertions)]
+            {
+                global::DEBUG_UTILS = None;
+            }
+        }
     }
 }

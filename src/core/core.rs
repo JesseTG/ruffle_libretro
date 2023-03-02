@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::executor::block_on;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
@@ -20,7 +20,7 @@ use rust_libretro::core::Core;
 use rust_libretro::environment::get_save_directory;
 use rust_libretro::sys::retro_hw_context_type::*;
 use rust_libretro::sys::*;
-use rust_libretro::types::{PixelFormat, SystemInfo};
+use rust_libretro::types::{MessageProgress, PixelFormat, SystemInfo};
 use rust_libretro::{anyhow, environment};
 use thiserror::Error as ThisError;
 
@@ -34,7 +34,7 @@ use crate::backend::render::{enable_hw_render, enable_hw_render_negotiation_inte
 use crate::backend::storage::RetroVfsStorageBackend;
 use crate::backend::ui::RetroUiBackend;
 use crate::core::config::defaults;
-use crate::core::state::PlayerState::{Active, Pending, Uninitialized};
+use crate::core::state::PlayerState::*;
 use crate::core::{input, Ruffle};
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
 use crate::{built_info, util};
@@ -111,10 +111,17 @@ impl Core for Ruffle {
     }
 
     fn on_run(&mut self, ctx: &mut RunContext, delta_us: Option<i64>) {
+        if let Exiting = self.player {
+            error!("Hardware context lost, core will now exit.");
+            let ctx = GenericContext::from(ctx);
+            self.notify_context_lost(&ctx);
+            ctx.shutdown();
+            return;
+        }
+
         if let (Active(player), Some(delta)) = (&self.player, delta_us) {
             ctx.poll_input();
             // TODO: Handle input
-            let joypad_state = ctx.get_joypad_state(0, 0);
             let mut player = player.lock().expect("Cannot reenter");
 
             player.tick((delta as f64) / 1000.0);
@@ -320,10 +327,12 @@ impl Core for Ruffle {
     }
 
     fn on_hw_context_reset(&mut self, context: &mut GenericContext) {
+        debug!("Core::on_hw_context_reset()");
         match &self.player {
-            Active(player) => {
+            Active(_) => {
                 // Game is already running
-                todo!("Hardware context reset with active player, still need to refresh the graphics resources");
+                self.player = Exiting;
+                context.shutdown();
             }
             Pending(builder) => {
                 // Game is waiting for hardware context to be ready
@@ -342,25 +351,21 @@ impl Core for Ruffle {
             Uninitialized => {
                 warn!("Resetting hardware context before core is ready");
             }
+            Exiting => {
+                warn!("Resetting hardware context after a fatal error");
+            }
         };
     }
 
     fn on_hw_context_destroyed(&mut self, ctx: &mut GenericContext) {
-        unsafe {
-            {
-                let device = negotiation::DEVICE.as_ref().unwrap();
-                if let Err(e) = device.device_wait_idle() {
-                    warn!("on_hw_context_destroyed: vkDeviceWaitIdle({:?}) failed with {e}", device.handle());
+        debug!("Core::on_hw_context_destroyed()");
+        match &self.player {
+            Active(_) => {
+                self.player = Exiting;
+                ctx.shutdown();
                 }
-            } // Scoped to prevent misuse after being dropped
-
-            negotiation::DEVICE = None;
-            negotiation::INSTANCE = None;
-            negotiation::ENTRY = None;
-
-            #[cfg(debug_assertions)]
-            {
-                negotiation::DEBUG_UTILS = None;
+            _ => {
+                warn!("Destroying hardware context without an active player");
             }
         }
     }
@@ -369,6 +374,11 @@ impl Core for Ruffle {
         todo!()
     }
 }
+
+const CONTEXT_LOST_MESSAGE: &'static str =
+    "Hardware context lost, and Ruffle can't reinitialize it.\nPlease reload the game.";
+const CONTEXT_LOST_PRIORITY: u32 = 32;
+const CONTEXT_LOST_DURATION: u32 = 3000;
 
 impl Ruffle {
     fn finalize_player(
@@ -405,5 +415,22 @@ impl Ruffle {
         };
 
         Ok(builder.build())
+    }
+
+    fn notify_context_lost(&self, ctx: &GenericContext) {
+        let message_sent = ctx.set_message_ext(
+            CONTEXT_LOST_MESSAGE,
+            CONTEXT_LOST_DURATION,
+            CONTEXT_LOST_PRIORITY,
+            retro_log_level::RETRO_LOG_ERROR,
+            retro_message_target::RETRO_MESSAGE_TARGET_ALL,
+            retro_message_type::RETRO_MESSAGE_TYPE_NOTIFICATION,
+            MessageProgress::Indeterminate,
+        );
+
+        if let Err(e) = message_sent {
+            error!("{CONTEXT_LOST_MESSAGE}");
+            error!("Additionally, RETRO_ENVIRONMENT_SET_MESSAGE_EXT failed: {e}");
+        }
     }
 }

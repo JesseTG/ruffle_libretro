@@ -3,10 +3,7 @@ use std::fmt::Debug;
 
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::Surface;
-use ash::vk::{
-    self, DeviceCreateInfo, DeviceQueueCreateInfo, QueueFamilyProperties,
-    QueueFlags, StaticFn, SurfaceKHR,
-};
+use ash::vk::{self, DeviceCreateInfo, DeviceQueueCreateInfo, QueueFamilyProperties, QueueFlags, StaticFn, SurfaceKHR};
 use ash::vk::{ApplicationInfo, PFN_vkGetInstanceProcAddr};
 use log::{debug, error, info, log_enabled, warn};
 use rust_libretro::anyhow::{self, anyhow, bail};
@@ -19,6 +16,7 @@ use thiserror::Error as ThisError;
 use wgpu_hal::api::Vulkan;
 use wgpu_hal::InstanceFlags;
 
+use crate::backend::render::vulkan::global;
 use crate::backend::render::vulkan::util::{set_debug_name, PropertiesFormat, QueueFamilies, Queues};
 use crate::built_info;
 
@@ -48,18 +46,12 @@ pub enum VulkanNegotiationError {
 /// (See the git blame for this line for details.)
 const APPLICATION_NAME: &[u8] = b"ruffle_libretro\0";
 
-static mut APPLICATION_INFO: Option<ApplicationInfo> = None;
-pub(crate) static mut ENTRY: Option<ash::Entry> = None;
-pub(crate) static mut INSTANCE: Option<wgpu::Instance> = None;
-pub(crate) static mut DEVICE: Option<ash::Device> = None;
 
-#[cfg(debug_assertions)]
-pub(crate) static mut DEBUG_UTILS: Option<DebugUtils> = None;
 
 unsafe extern "C" fn get_application_info() -> *const ApplicationInfo {
     debug!("get_application_info()");
-    if APPLICATION_INFO.is_none() {
-        APPLICATION_INFO = Some(
+    if global::APPLICATION_INFO.is_none() {
+        global::APPLICATION_INFO = Some(
             ApplicationInfo::builder()
                 .api_version(vk::API_VERSION_1_3)
                 .application_name(CStr::from_ptr(APPLICATION_NAME.as_ptr() as *const c_char))
@@ -73,7 +65,7 @@ unsafe extern "C" fn get_application_info() -> *const ApplicationInfo {
         );
     }
 
-    APPLICATION_INFO.as_ref().unwrap()
+    global::APPLICATION_INFO.as_ref().unwrap()
 }
 
 unsafe extern "C" fn create_instance(
@@ -159,7 +151,7 @@ unsafe fn create_instance_impl(
     let ash_instance = ash::Instance::load(&static_fn, vk_instance);
     #[cfg(debug_assertions)]
     {
-        DEBUG_UTILS = Some(ash::extensions::ext::DebugUtils::new(&entry, &ash_instance));
+        global::DEBUG_UTILS = Some(ash::extensions::ext::DebugUtils::new(&entry, &ash_instance));
     }
 
     let instance = unsafe {
@@ -178,8 +170,8 @@ unsafe fn create_instance_impl(
     };
 
     let instance = wgpu::Instance::from_hal::<Vulkan>(instance);
-    ENTRY = Some(entry);
-    INSTANCE = Some(instance);
+    global::ENTRY = Some(entry);
+    global::INSTANCE = Some(instance);
 
     Ok(vk_instance)
 }
@@ -220,10 +212,10 @@ unsafe fn create_device2_impl(
         None => bail!("Frontend provided a null create_device_wrapper"),
     };
 
-    let entry = ENTRY
+    let entry = global::ENTRY
         .as_ref()
         .expect("ENTRY should've been initialized in create_instance");
-    let instance = INSTANCE
+    let instance = global::INSTANCE
         .as_ref()
         .expect("INSTANCE should've been initialized in create_instance")
         .as_hal::<Vulkan>()
@@ -232,7 +224,7 @@ unsafe fn create_device2_impl(
         .raw_instance();
 
     #[cfg(debug_assertions)]
-    let debug_utils = DEBUG_UTILS
+    let debug_utils = global::DEBUG_UTILS
         .as_ref()
         .expect("DEBUG_UTILS should've been initialized in create_instance");
 
@@ -371,7 +363,7 @@ unsafe fn create_device2_impl(
         set_debug_name(debug_utils, &device, surface, b"RetroArch Surface\0");
     }
 
-    DEVICE = Some(device.clone());
+    global::DEVICE = Some(device.clone());
 
     Ok(retro_vulkan_context {
         device: device.handle(),
