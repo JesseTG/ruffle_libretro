@@ -165,21 +165,21 @@ impl Drop for VulkanWgpuRenderBackend {
             }
 
             {
-                self.interface.wait_sync_index();
-                let device = &self.descriptors.device;
-                let device = device.as_hal::<Vulkan, _, _>(|c| c.unwrap().raw_device().clone());
-                device.destroy_image_view(self.backend.target().get_image_view(), None);
-            } // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did
-
-            // Also, don't destroy self.device or self.instance;
-            // we created them, but RetroArch took ownership of them,
-            // so it's responsible for cleanup.
-            {
                 let device = global::DEVICE.as_ref().unwrap();
                 if let Err(e) = device.device_wait_idle() {
                     warn!("vkDeviceWaitIdle({:?}) failed with {e}", device.handle());
                 }
+
+                self.interface.wait_sync_index();
+                let device = &self.descriptors.device;
+                let device = device.as_hal::<Vulkan, _, _>(|c| c.unwrap().raw_device().clone());
+                device.destroy_image_view(self.backend.target().get_image_view(), None);
+                // Do *not* destroy the VkImage associated with this VkImageView; we didn't create it, wgpu did
             } // Scoped to prevent misuse after being dropped
+
+            // Also, don't destroy the underlying VkInstance or VkDevice.
+            // We created them, but RetroArch took ownership of them,
+            // so it's responsible for cleanup.
 
             global::DEVICE = None;
             global::INSTANCE = None;
