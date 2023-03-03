@@ -25,8 +25,8 @@ ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", features = ["tess
 ruffle_video = { git = "https://github.com/ruffle-rs/ruffle" }
 ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle" }
 ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", features = ["render_debug_labels"] }
-rust-libretro = { git = "https://github.com/max-m/rust-libretro", rev = "342acd1dc457493eebfd5a519316cd55a0a60a9f", features = ["vulkan", "unstable-env-commands", "strict-bitflags", "log"] }
-rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", rev = "342acd1dc457493eebfd5a519316cd55a0a60a9f", features = ["vulkan"] }
+rust-libretro = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan", "unstable-env-commands", "strict-bitflags", "log"] }
+rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan"] }
 tap = "1.0.1"
 thiserror = "1.0.38"
 tracy-client = "0.15.1"
