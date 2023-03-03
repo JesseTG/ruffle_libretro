@@ -29,6 +29,8 @@ rust-libretro = { git = "https://github.com/max-m/rust-libretro", rev = "342acd1
 rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", rev = "342acd1dc457493eebfd5a519316cd55a0a60a9f", features = ["vulkan"] }
 tap = "1.0.1"
 thiserror = "1.0.38"
+tracy-client = "0.15.1"
+tracy-client-sys = {version = "0.20.0", features = ["manual-lifetime", "delayed-init"]}
 url = "2.3.1"
 webbrowser = "0.8.2"
 wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181", features = ["angle", "expose-ids"] }
@@ -38,7 +40,7 @@ wgpu-types = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d94
 
 [features]
 default = []
-profiler = ["profiling", "profiling/profile-with-tracy", "ruffle_render_wgpu/profile-with-tracy"]
+profiler = ["profiling", "profiling/profile-with-tracy", "ruffle_render_wgpu/profile-with-tracy", "tracy-client/fibers"]
 
 [profile.dev]
 incremental = true
