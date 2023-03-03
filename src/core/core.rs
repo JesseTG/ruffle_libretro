@@ -127,6 +127,10 @@ impl Core for Ruffle {
         #[cfg(feature = "profiler")]
         {
             self.tracy_client = None;
+
+            unsafe {
+                tracy_client::sys::___tracy_shutdown_profiler();
+            }
         }
     }
 
