@@ -48,6 +48,8 @@ impl VulkanWgpuRenderBackend {
         geometry: &retro_game_geometry,
         hw_render: &retro_hw_render_interface_vulkan,
     ) -> Result<Self, Box<dyn Error>> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::new");
         let interface = VulkanRenderInterface::new(hw_render)?;
 
         unsafe {
@@ -74,18 +76,26 @@ impl RenderBackend for VulkanWgpuRenderBackend {
     }
 
     fn set_viewport_dimensions(&mut self, dimensions: ViewportDimensions) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::set_viewport_dimensions");
         self.backend.set_viewport_dimensions(dimensions)
     }
 
     fn register_shape(&mut self, shape: DistilledShape, bitmap_source: &dyn BitmapSource) -> ShapeHandle {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::register_shape");
         self.backend.register_shape(shape, bitmap_source)
     }
 
     fn replace_shape(&mut self, shape: DistilledShape, bitmap_source: &dyn BitmapSource, handle: ShapeHandle) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::replace_shape");
         self.backend.replace_shape(shape, bitmap_source, handle)
     }
 
     fn register_glyph_shape(&mut self, shape: &Glyph) -> ShapeHandle {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::register_glyph_shape");
         self.backend.register_glyph_shape(shape)
     }
 
@@ -97,6 +107,8 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         commands: CommandList,
         quality: StageQuality,
     ) -> Option<Box<(dyn SyncHandle + 'static)>> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::render_offscreen");
         self.backend.render_offscreen(handle, width, height, commands, quality)
     }
 
@@ -109,11 +121,15 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         dest_point: (u32, u32),
         filter: Filter,
     ) -> Option<Box<dyn SyncHandle>> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::apply_filter");
         self.backend
             .apply_filter(source, source_point, source_size, destination, dest_point, filter)
     }
 
     fn submit_frame(&mut self, clear: Color, commands: CommandList) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::submit_frame");
         self.backend.submit_frame(clear, commands);
         let target = self.backend.target();
         let queue_index = self.interface.queue_index();
@@ -121,6 +137,8 @@ impl RenderBackend for VulkanWgpuRenderBackend {
     }
 
     fn register_bitmap(&mut self, bitmap: Bitmap) -> Result<BitmapHandle, RuffleError> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::register_bitmap");
         self.backend.register_bitmap(bitmap)
     }
 
@@ -131,10 +149,14 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         height: u32,
         rgba: Vec<u8>,
     ) -> Result<(), RuffleError> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::update_texture");
         self.backend.update_texture(bitmap, width, height, rgba)
     }
 
     fn create_context3d(&mut self) -> Result<Box<dyn Context3D>, RuffleError> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::create_context3d");
         self.backend.create_context3d()
     }
 
@@ -144,21 +166,29 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         commands: Vec<Context3DCommand<'gc>>,
         mc: MutationContext<'gc, '_>,
     ) -> Result<(), RuffleError> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::context3d_present");
         self.backend.context3d_present(context, commands, mc)
     }
 
     fn debug_info(&self) -> Cow<'static, str> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::debug_info");
         self.backend.debug_info()
     }
 
     fn set_quality(&mut self, quality: StageQuality) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::set_quality");
         self.backend.set_quality(quality)
     }
 }
 
 impl Drop for VulkanWgpuRenderBackend {
     fn drop(&mut self) {
-        debug!("VulkanWgpuRenderBackend::drop()");
+        debug!("VulkanWgpuRenderBackend::drop");
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanWgpuRenderBackend::drop");
         unsafe {
             if global::DEVICE.is_none() {
                 return;
@@ -166,8 +196,12 @@ impl Drop for VulkanWgpuRenderBackend {
 
             {
                 let device = global::DEVICE.as_ref().unwrap();
-                if let Err(e) = device.device_wait_idle() {
-                    warn!("vkDeviceWaitIdle({:?}) failed with {e}", device.handle());
+                {
+                    #[cfg(feature = "profiler")]
+                    profiling::scope!("vkDeviceWaitIdle");
+                    if let Err(e) = device.device_wait_idle() {
+                        warn!("vkDeviceWaitIdle({:?}) failed with {e}", device.handle());
+                    }
                 }
 
                 self.interface.wait_sync_index();

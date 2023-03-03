@@ -1,6 +1,8 @@
 use std::fmt::Debug;
 
 use ash::vk;
+#[cfg(feature = "profiler")]
+use profiling;
 use ruffle_render_wgpu::target::RenderTarget;
 use ruffle_render_wgpu::target::RenderTargetFrame;
 use rust_libretro_sys::retro_vulkan_image;
@@ -36,6 +38,9 @@ const TARGET_DEBUG_LABEL: &str = "Ruffle Intermediate Texture";
 
 impl RetroTextureTarget {
     pub fn new(device: &wgpu::Device, size: (u32, u32), format: wgpu::TextureFormat) -> Result<Self, Error> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("RetroTextureTarget::new");
+
         let device_limits = device.limits();
         if size.0 > device_limits.max_texture_dimension_2d
             || size.1 > device_limits.max_texture_dimension_2d
@@ -110,6 +115,8 @@ impl RetroTextureTarget {
         device: &ash::Device,
         texture: &wgpu::Texture,
     ) -> (vk::ImageViewCreateInfo, vk::ImageView) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("RetroTextureTarget::create_image_view");
         let image = Self::get_vk_image(texture).unwrap();
 
         let create_info = vk::ImageViewCreateInfo::builder()
@@ -141,6 +148,8 @@ impl RenderTarget for RetroTextureTarget {
     type Frame = RetroTextureTargetFrame;
 
     fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("RetroTextureTarget::resize");
         self.size = wgpu::Extent3d {
             width,
             height,
@@ -182,6 +191,8 @@ impl RenderTarget for RetroTextureTarget {
     }
 
     fn get_next_texture(&mut self) -> Result<Self::Frame, wgpu::SurfaceError> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("RetroTextureTarget::get_next_texture");
         Ok(RetroTextureTargetFrame(self.texture.create_view(&Default::default())))
     }
 
@@ -192,6 +203,8 @@ impl RenderTarget for RetroTextureTarget {
         command_buffers: I,
         _frame: Self::Frame,
     ) -> wgpu::SubmissionIndex {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("RetroTextureTarget::submit");
         queue.submit(command_buffers)
     }
 }

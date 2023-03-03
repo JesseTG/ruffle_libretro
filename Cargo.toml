@@ -19,6 +19,7 @@ glow = "0.11.2"
 isahc = "1.7.2"
 libc = "0.2.139"
 log = "0.4.17"
+profiling = { version = "1.0", features = ["tracy-client"], optional = true }
 ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", features = ["audio", "default"] }
 ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", features = ["tessellator"] }
 ruffle_video = { git = "https://github.com/ruffle-rs/ruffle" }
@@ -34,6 +35,10 @@ wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d
 wgpu-core = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181" }
 wgpu-hal = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181", features = ["gles", "vulkan"] }
 wgpu-types = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181" }
+
+[features]
+default = []
+profiler = ["profiling", "profiling/profile-with-tracy", "ruffle_render_wgpu/profile-with-tracy"]
 
 [build-dependencies]
 built = "0.5"

@@ -8,6 +8,12 @@ use std::time::Duration;
 
 use futures::executor::block_on;
 use log::{debug, error, info, warn};
+
+#[cfg(feature = "profiler")]
+use profiling;
+
+#[cfg(feature = "profiler")]
+use profiling::tracy_client;
 use ruffle_core::backend::navigator::NullNavigatorBackend;
 use ruffle_core::backend::storage::MemoryStorageBackend;
 use ruffle_core::config::Letterbox;
@@ -60,10 +66,19 @@ impl Core for Ruffle {
     }
 
     fn on_get_av_info(&mut self, _ctx: &mut GetAvInfoContext) -> retro_system_av_info {
+        debug!("Ruffle::on_get_av_info");
         self.av_info.expect("Shouldn't be called until after on_load_game")
     }
 
     fn on_set_environment(&mut self, ctx: &mut SetEnvironmentContext) {
+        #[cfg(feature = "profiler")]
+        if self.tracy_client.is_none() {
+            self.tracy_client = Some(tracy_client::Client::start());
+            profiling::register_thread!("Main Thread");
+        }
+
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_set_environment");
         ctx.set_support_no_game(false);
         unsafe {
             ctx.enable_vfs_interface(3);
@@ -96,21 +111,36 @@ impl Core for Ruffle {
     }
 
     fn on_init(&mut self, ctx: &mut InitContext) {
+        #[cfg(feature = "profiler")]
+        info!("Profiling with tracy is enabled in this build");
+
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_init");
+
         let ctx = GenericContext::from(ctx);
         self.frontend_preferred_hw_render = ctx.get_preferred_hw_render().unwrap();
     }
 
-    fn on_deinit(&mut self, _ctx: &mut DeinitContext) {}
+    fn on_deinit(&mut self, _ctx: &mut DeinitContext) {
+        debug!("Core::on_deinit()");
+
+        #[cfg(feature = "profiler")]
+        {
+            self.tracy_client = None;
+        }
+    }
 
     fn on_set_controller_port_device(&mut self, _port: u32, _device: u32, _ctx: &mut GenericContext) {
         todo!()
     }
 
     fn on_reset(&mut self, _ctx: &mut ResetContext) {
-        todo!()
+        debug!("Core::on_reset()");
     }
 
     fn on_run(&mut self, ctx: &mut RunContext, delta_us: Option<i64>) {
+        #[cfg(feature = "profiler")]
+        let run_span = tracy_client::span!("retro_run", 0);
         if let Exiting = self.player {
             error!("Hardware context lost, core will now exit.");
             let ctx = GenericContext::from(ctx);
@@ -119,15 +149,31 @@ impl Core for Ruffle {
             return;
         }
 
+        #[cfg(feature = "profiler")]
+        if let Some(delta) = delta_us {
+            run_span.emit_value(delta as u64);
+        }
+
         if let (Active(player), Some(delta)) = (&self.player, delta_us) {
-            ctx.poll_input();
+            {
+                #[cfg(feature = "profiler")]
+                profiling::scope!("retro_input_poll_t");
+                ctx.poll_input();
+            }
             // TODO: Handle input
             let mut player = player.lock().expect("Cannot reenter");
 
-            player.tick((delta as f64) / 1000.0);
-            // Ruffle wants milliseconds, we have microseconds.
+            {
+                #[cfg(feature = "profiler")]
+                profiling::scope!("Player::tick");
+
+                player.tick((delta as f64) / 1000.0);
+                // Ruffle wants milliseconds, we have microseconds.
+            }
 
             if player.needs_render() {
+                #[cfg(feature = "profiler")]
+                profiling::scope!("Player::render");
                 player.render();
             }
 
@@ -135,10 +181,20 @@ impl Core for Ruffle {
         }
 
         let av_info = self.av_info.expect("av_info should've been initialized by now");
-        ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
+        {
+            #[cfg(feature = "profiler")]
+            profiling::scope!("retro_video_refresh_t");
+
+            ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
+        }
+
+        #[cfg(feature = "profiler")]
+        profiling::finish_frame!();
     }
 
     fn on_load_game(&mut self, game: Option<retro_game_info>, ctx: &mut LoadGameContext) -> anyhow::Result<()> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_load_game");
         ctx.set_pixel_format(PixelFormat::XRGB8888)?;
         ctx.enable_frame_time_callback((1000000.0f64 / 60.0).round() as retro_usec_t)?;
 
@@ -149,6 +205,8 @@ impl Core for Ruffle {
         generic_ctx.set_input_descriptors(input::INPUT_DESCRIPTORS)?;
 
         let game = game.ok_or(CoreError::NoGameProvided)?;
+
+        // TODO: log the game's name to the profiler with Span.emit_value
 
         let buffer = unsafe { from_raw_parts(game.data as *const u8, game.size as usize) };
         let movie = SwfMovie::from_data(buffer, None, None)
@@ -209,10 +267,15 @@ impl Core for Ruffle {
 
     fn on_unload_game(&mut self, _ctx: &mut UnloadGameContext) {
         // TODO: Call vfs_flush
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_unload_game");
+        debug!("Ruffle::on_unload_game()");
         self.player = Uninitialized;
     }
 
     fn on_options_changed(&mut self, ctx: &mut OptionsChangedContext) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("Ruffle::on_options_changed");
         self.config.autoplay = match ctx.get_variable("ruffle_autoplay") {
             Ok(Some("true")) => true,
             Ok(Some("false")) => false,
@@ -281,6 +344,8 @@ impl Core for Ruffle {
     }
 
     fn on_keyboard_event(&mut self, down: bool, keycode: retro_key, _character: u32, _key_modifiers: retro_mod) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_keyboard_callback::callback");
         let event = match (down, keycode) {
             (true, keycode) => PlayerEvent::KeyDown {
                 key_code: util::keyboard::to_key_code(keycode),
@@ -299,6 +364,8 @@ impl Core for Ruffle {
     }
 
     fn on_write_audio(&mut self, ctx: &mut AudioContext) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_audio_callback::callback");
         if let Active(player) = &self.player {
             let mut player = player.lock().unwrap();
             let player = player.deref_mut();
@@ -312,6 +379,8 @@ impl Core for Ruffle {
     }
 
     fn on_audio_set_state(&mut self, enabled: bool) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_audio_callback::set_state");
         if let Active(player) = &self.player {
             let mut player = player.lock().unwrap();
             let player = player.deref_mut();
@@ -328,6 +397,8 @@ impl Core for Ruffle {
 
     fn on_hw_context_reset(&mut self, context: &mut GenericContext) {
         debug!("Core::on_hw_context_reset()");
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_hw_render_callback::context_reset");
         match &self.player {
             Active(_) => {
                 // Game is already running
@@ -359,6 +430,8 @@ impl Core for Ruffle {
 
     fn on_hw_context_destroyed(&mut self, ctx: &mut GenericContext) {
         debug!("Core::on_hw_context_destroyed()");
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_hw_render_callback::context_destroy");
         match &self.player {
             Active(_) => {
                 self.player = Exiting;
@@ -386,6 +459,8 @@ impl Ruffle {
         mut builder: PlayerBuilder,
         ctx: &mut GenericContext,
     ) -> Result<Arc<Mutex<Player>>, Box<dyn Error>> {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("Ruffle::finalize_player");
         let environ_cb = self.environ_cb.get();
         let av_info = &self
             .av_info

@@ -131,6 +131,8 @@ impl VulkanRenderInterface {
     }
 
     pub fn set_image(&self, image: &retro_vulkan_image, semaphores: &[vk::Semaphore], src_queue_family: u32) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_hw_render_interface_vulkan.set_image");
         unsafe {
             (self.set_image)(self.handle, image, semaphores.len() as u32, semaphores.as_ptr(), src_queue_family);
         }

@@ -50,6 +50,9 @@ const APPLICATION_NAME: &[u8] = b"ruffle_libretro\0";
 
 unsafe extern "C" fn get_application_info() -> *const ApplicationInfo {
     debug!("get_application_info()");
+    #[cfg(feature = "profiler")]
+    profiling::scope!("retro_hw_render_context_negotiation_interface_vulkan::get_application_info");
+
     if global::APPLICATION_INFO.is_none() {
         global::APPLICATION_INFO = Some(
             ApplicationInfo::builder()
@@ -75,6 +78,8 @@ unsafe extern "C" fn create_instance(
     opaque: *mut c_void,
 ) -> vk::Instance {
     debug!("create_instance(..., {app:?}, {create_instance_wrapper:?}, {opaque:?})");
+    #[cfg(feature = "profiler")]
+    profiling::scope!("retro_hw_render_context_negotiation_interface_vulkan::create_instance");
 
     match create_instance_impl(get_instance_proc_addr, &*app, create_instance_wrapper, opaque) {
         Ok(instance) => {
@@ -109,7 +114,11 @@ unsafe fn create_instance_impl(
     };
 
     let static_fn = StaticFn { get_instance_proc_addr };
-    let entry = ash::Entry::from_static_fn(static_fn.clone());
+    let entry = {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("ash::Entry::from_static_fn");
+        ash::Entry::from_static_fn(static_fn.clone())
+    };
 
     let driver_api_version = entry.try_enumerate_instance_version()?.unwrap_or(vk::API_VERSION_1_0);
     // vkEnumerateInstanceVersion isn't available in Vulkan 1.0
@@ -133,7 +142,11 @@ unsafe fn create_instance_impl(
         .enabled_layer_names(&[])
         .build();
 
-    let vk_instance = create_instance_wrapper(opaque, &instance_create_info);
+    let vk_instance = {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("create_instance_wrapper");
+        create_instance_wrapper(opaque, &instance_create_info)
+    };
 
     if vk_instance == vk::Instance::null() {
         bail!("create_instance_wrapper returned VK_NULL_HANDLE");
@@ -148,13 +161,20 @@ unsafe fn create_instance_impl(
             .any(|layer| CStr::from_ptr(layer.layer_name.as_ptr()) == nv_optimus_layer)
     };
 
-    let ash_instance = ash::Instance::load(&static_fn, vk_instance);
+    let ash_instance = {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("ash::Instance::load");
+        ash::Instance::load(&static_fn, vk_instance)
+    };
+
     #[cfg(debug_assertions)]
     {
         global::DEBUG_UTILS = Some(ash::extensions::ext::DebugUtils::new(&entry, &ash_instance));
     }
 
     let instance = unsafe {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("VulkanInstance::from_raw");
         VulkanInstance::from_raw(
             entry.clone(),
             ash_instance,
@@ -169,7 +189,13 @@ unsafe fn create_instance_impl(
         )?
     };
 
-    let instance = wgpu::Instance::from_hal::<Vulkan>(instance);
+    let instance = {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("wgpu::Instance::from_hal");
+
+        wgpu::Instance::from_hal::<Vulkan>(instance)
+    };
+
     global::ENTRY = Some(entry);
     global::INSTANCE = Some(instance);
 
@@ -285,6 +311,8 @@ unsafe fn create_device2_impl(
     let surface_fn = if surface.is_none() {
         None
     } else {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("ash::extensions::khr::Surface::new");
         Some(Surface::new(&entry, &instance))
     };
 
@@ -329,8 +357,15 @@ unsafe fn create_device2_impl(
     }
 
     let device = create_logical_device(&instance, gpu, &queue_families, |info| {
-        let device = create_device_wrapper(gpu, opaque, info);
+        let device = {
+            #[cfg(feature = "profiler")]
+            profiling::scope!("create_device_wrapper");
+            create_device_wrapper(gpu, opaque, info)
+        };
         let instance_fn = instance.fp_v1_0();
+
+        #[cfg(feature = "profiler")]
+        profiling::scope!("ash::Device::load");
         ash::Device::load(instance_fn, device)
     })?;
     // Remember to clean up device if any function below this point fails!
@@ -361,6 +396,8 @@ unsafe extern "C" fn create_device2(
     opaque: *mut c_void,
 ) -> bool {
     debug!("create_device2({context:?}, {instance:?}, {gpu:?}, {surface:?}, ..., ..., {opaque:?})");
+    #[cfg(feature = "profiler")]
+    profiling::scope!("retro_hw_render_context_negotiation_interface_vulkan::create_device2");
     let context = if !context.is_null() {
         &mut (*context)
     } else {
@@ -395,6 +432,8 @@ unsafe extern "C" fn create_device2(
 // The frontend will request certain extensions and layers for a device which is created.
 // The core must ensure that the queue and queue_family_index support GRAPHICS and COMPUTE.
 fn select_physical_device(instance: &ash::Instance) -> anyhow::Result<vk::PhysicalDevice> {
+    #[cfg(feature = "profiler")]
+    profiling::scope!("negotiation::select_physical_device");
     let available_physical_devices = unsafe { instance.enumerate_physical_devices()? };
     if available_physical_devices.is_empty() {
         bail!("No VkPhysicalDevices found");
@@ -418,6 +457,8 @@ fn filter_physical_device(
 ) -> anyhow::Result<vk::PhysicalDevice> {
     // See if this VkPhysicalDevice meets the following conditions...
     info!("Evaluating VkPhysicalDevice {physical_device:?}");
+    #[cfg(feature = "profiler")]
+    profiling::scope!("negotiation::filter_physical_device");
 
     // A device with a queue that supports GRAPHICS and COMPUTE...
     let queue_families = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
@@ -443,6 +484,9 @@ fn select_queue_families(
     surface: vk::SurfaceKHR,
     surface_fn: &ash::extensions::khr::Surface,
 ) -> anyhow::Result<QueueFamilies> {
+    #[cfg(feature = "profiler")]
+    profiling::scope!("negotiation::select_queue_families");
+
     let queue_families = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
 
     let single_queue_family = queue_families
@@ -504,6 +548,9 @@ fn select_queue_families(
 // (Probably means we're not rendering to the screen)
 unsafe fn select_queue_family(queue_families: &[QueueFamilyProperties]) -> anyhow::Result<QueueFamily> {
     // The core must ensure that the queue and queue_family_index support GRAPHICS and COMPUTE.
+    #[cfg(feature = "profiler")]
+    profiling::scope!("negotiation::select_queue_family");
+
     queue_families
         .iter()
         .enumerate()
@@ -524,6 +571,9 @@ fn create_logical_device(
     queue_families: &QueueFamilies,
     create_device_wrapper: impl FnOnce(&DeviceCreateInfo) -> ash::Device,
 ) -> anyhow::Result<ash::Device> {
+    #[cfg(feature = "profiler")]
+    profiling::scope!("negotiation::create_logical_device");
+
     let queue_create_info = DeviceQueueCreateInfo::builder()
         .queue_family_index(queue_families.queue_family_index())
         .queue_priorities(&[1.0f32]) //  The core is free to set its own queue priorities.

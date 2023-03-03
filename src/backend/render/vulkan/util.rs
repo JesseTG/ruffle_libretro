@@ -171,21 +171,26 @@ pub unsafe fn create_descriptors(
     instance: &wgpu::Instance,
     interface: &VulkanRenderInterface,
 ) -> anyhow::Result<Descriptors> {
+    #[cfg(feature = "profiler")]
+    profiling::scope!("util::create_descriptors");
     let instance_hal = instance.as_hal::<Vulkan>().unwrap();
     let shared_instance = instance_hal.shared_instance();
     let gpu = interface.gpu();
     let device = interface.device();
 
-    let adapter = unsafe {
-        instance
-            .as_hal::<Vulkan>()
-            .unwrap()
+    let adapter = {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("wgpu::Instance::expose_adapter");
+        instance_hal
             .expose_adapter(gpu)
             .ok_or(anyhow::anyhow!("Failed to expose physical device {gpu:?}"))?
     };
 
     let open_device = unsafe {
         let device_extensions = adapter.adapter.required_device_extensions(adapter.features);
+
+        #[cfg(feature = "profiler")]
+        profiling::scope!("wgpu::ExposedAdapter<Vulkan>::device_from_raw");
         adapter.adapter.device_from_raw(
             ash::Device::load(shared_instance.raw_instance().fp_v1_0(), device),
             false,
@@ -196,13 +201,19 @@ pub unsafe fn create_descriptors(
         )?
     };
 
-    let adapter = unsafe { instance.create_adapter_from_hal(adapter) };
+    let adapter = unsafe {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("wgpu::Instance::create_adapter_from_hal");
+        instance.create_adapter_from_hal(adapter)
+    };
     let (limits, features) = required_limits(&adapter);
     let (device, queue) = unsafe {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("wgpu::Adapter::create_device_from_hal");
         adapter.create_device_from_hal(
             open_device,
             &wgpu::DeviceDescriptor {
-                label: None,
+                label: Some("Ruffle-Selected Device"),
                 features,
                 limits,
             },
@@ -210,5 +221,7 @@ pub unsafe fn create_descriptors(
         )?
     };
 
+    #[cfg(feature = "profiler")]
+    profiling::scope!("Descriptors::new");
     Ok(Descriptors::new(adapter, device, queue))
 }
