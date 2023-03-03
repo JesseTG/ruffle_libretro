@@ -40,5 +40,34 @@ wgpu-types = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d94
 default = []
 profiler = ["profiling", "profiling/profile-with-tracy", "ruffle_render_wgpu/profile-with-tracy"]
 
+[profile.dev]
+incremental = true
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+debug = true
+
+[profile.release]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+debug = false
+lto = true
+
+[profile.dev.package.h263-rs]
+opt-level = 3
+
+[profile.dev.package.h263-rs-yuv]
+opt-level = 3
+
+[profile.dev.package.nihav_core]
+opt-level = 3
+
+[profile.dev.package.nihav_codec_support]
+opt-level = 3
+
+[profile.dev.package.nihav_duck]
+opt-level = 3
+
 [build-dependencies]
 built = "0.5"
