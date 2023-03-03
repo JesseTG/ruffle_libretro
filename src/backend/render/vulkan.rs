@@ -3,7 +3,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use gc_arena::MutationContext;
-use log::{warn, debug};
+use log::{debug, warn};
 use ruffle_core::swf::Glyph;
 use ruffle_core::Color;
 use ruffle_render::backend::{Context3D, Context3DCommand, RenderBackend, ShapeHandle, ViewportDimensions};

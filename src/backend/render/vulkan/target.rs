@@ -10,7 +10,6 @@ use wgpu_core::api::Vulkan;
 
 type Error = Box<dyn std::error::Error>;
 
-
 #[derive(Debug)]
 pub struct RetroTextureTarget {
     size: wgpu::Extent3d,

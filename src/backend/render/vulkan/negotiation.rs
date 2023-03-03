@@ -40,13 +40,10 @@ pub enum VulkanNegotiationError {
     CannotExposePhysicalDevice,
 }
 
-
 /// This MUST be kept as a constant, and must *not* be given to a CString.
 /// Otherwise you risk undefined behavior; this has already bitten me in the ass.
 /// (See the git blame for this line for details.)
 const APPLICATION_NAME: &[u8] = b"ruffle_libretro\0";
-
-
 
 unsafe extern "C" fn get_application_info() -> *const ApplicationInfo {
     debug!("get_application_info()");
