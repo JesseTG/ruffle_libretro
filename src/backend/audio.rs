@@ -1,3 +1,4 @@
+use log::debug;
 use ruffle_core::backend::audio::{
     AudioBackend, AudioMixer, DecodeError, RegisterError, SoundHandle, SoundInstanceHandle, SoundTransform,
 };
@@ -8,10 +9,14 @@ use std::time::Duration;
 pub struct RetroAudioBackend {
     mixer: AudioMixer,
     playing: bool,
-    output: [i16; 4096],
+    output: [i16; Self::MAX_SAMPLES],
+    output_samplerate: u32,
+    fps: f64,
 }
 
 impl RetroAudioBackend {
+    pub const MAX_SAMPLES: usize = 4096;
+
     pub fn new(num_output_channels: u8, output_samplerate: u32) -> Self {
         #[cfg(feature = "profiler")]
         profiling::scope!("RetroAudioBackend::new");
@@ -20,8 +25,23 @@ impl RetroAudioBackend {
         Self {
             mixer,
             playing: false,
-            output: [0; 4096],
+            output: [0; Self::MAX_SAMPLES],
+            output_samplerate,
+            fps: 0.0,
         }
+    }
+
+    pub fn current_samples(&self) -> Option<&[i16]> {
+        if !self.fps.is_finite() || self.fps < 1.0 {
+            None
+        } else {
+            let num_samples = ((self.output_samplerate as usize) / (self.fps as usize)) * 2;
+            debug!("output_samplerate={}, fps={}, num_samples={}", self.output_samplerate, self.fps, num_samples);
+
+            Some(&self.output[..num_samples.min(Self::MAX_SAMPLES)])
+        }
+
+        // samples per frame = samples per second / frames per second
     }
 }
 
@@ -119,13 +139,22 @@ impl AudioBackend for RetroAudioBackend {
     fn tick(&mut self) {
         #[cfg(feature = "profiler")]
         profiling::scope!("RetroAudioBackend::tick");
-        self.mixer.mix(&mut self.output);
+        if self.fps.is_finite() && self.fps > 1.0 {
+            let num_samples = ((self.output_samplerate as usize) / (self.fps as usize)) * 2;
+            let interval = &mut self.output[..num_samples.min(Self::MAX_SAMPLES)];
+
+            #[cfg(feature = "profiler")]
+            profiling::scope!("AudioMixer::mix");
+            self.mixer.mix(interval);
+        }
     }
 
-    fn set_frame_rate(&mut self, _frame_rate: f64) {}
+    fn set_frame_rate(&mut self, frame_rate: f64) {
+        self.fps = frame_rate;
+    }
 
     fn position_resolution(&self) -> Option<Duration> {
-        None
+        Some(Duration::from_secs_f64(f64::from(Self::MAX_SAMPLES as u32) / f64::from(self.output_samplerate)))
     }
 
     fn volume(&self) -> f32 {
@@ -137,8 +166,6 @@ impl AudioBackend for RetroAudioBackend {
     }
 
     fn get_sample_history(&self) -> [[f32; 2]; 1024] {
-        #[cfg(feature = "profiler")]
-        profiling::scope!("RetroAudioBackend::get_sample_history");
         self.mixer.get_sample_history()
     }
 }

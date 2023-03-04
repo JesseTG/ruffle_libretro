@@ -181,15 +181,15 @@ impl Core for Ruffle {
                 player.render();
             }
 
+            let av_info = self.av_info.expect("av_info should've been initialized by now");
+            {
+                #[cfg(feature = "profiler")]
+                profiling::scope!("retro_video_refresh_t");
+
+                ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
+            }
+
             // TODO: React to changed settings
-        }
-
-        let av_info = self.av_info.expect("av_info should've been initialized by now");
-        {
-            #[cfg(feature = "profiler")]
-            profiling::scope!("retro_video_refresh_t");
-
-            ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
         }
 
         #[cfg(feature = "profiler")]
