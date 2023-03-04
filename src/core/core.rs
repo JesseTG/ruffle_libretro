@@ -166,6 +166,7 @@ impl Core for Ruffle {
             }
             // TODO: Handle input
             let mut player = player.lock().expect("Cannot reenter");
+            let player = player.deref_mut();
 
             {
                 #[cfg(feature = "profiler")]
@@ -182,12 +183,15 @@ impl Core for Ruffle {
             }
 
             let av_info = self.av_info.expect("av_info should've been initialized by now");
+
             {
                 #[cfg(feature = "profiler")]
                 profiling::scope!("retro_video_refresh_t");
 
                 ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
             }
+
+            Self::send_audio(player, ctx);
 
             // TODO: React to changed settings
         }
@@ -494,6 +498,24 @@ impl Ruffle {
         };
 
         Ok(builder.build())
+    }
+
+    fn send_audio(player: &mut Player, ctx: &mut RunContext) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("retro_run::send_audio");
+        let audio = player
+            .audio()
+            .downcast_ref::<RetroAudioBackend>()
+            .expect("Unexpected AudioBackend implementation");
+
+        if let Some(samples) = audio.current_samples() {
+            let ctx = AudioContext::from(ctx);
+
+            #[cfg(feature = "profiler")]
+            profiling::scope!("retro_audio_sample_batch_t");
+
+            ctx.batch_audio_samples(&samples[..]);
+        }
     }
 
     fn notify_context_lost(&self, ctx: &GenericContext) {
