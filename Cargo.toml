@@ -20,7 +20,7 @@ isahc = "1.7.2"
 libc = "0.2.139"
 log = "0.4.17"
 profiling = { version = "1.0", features = ["tracy-client"], optional = true }
-ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", features = ["audio", "default"] }
+ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", features = ["audio", "lzma", "mp3", "nellymoser"] }
 ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", features = ["tessellator"] }
 ruffle_video = { git = "https://github.com/ruffle-rs/ruffle" }
 ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle" }
