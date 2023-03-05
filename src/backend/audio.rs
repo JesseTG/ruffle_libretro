@@ -15,7 +15,7 @@ pub struct RetroAudioBackend {
 }
 
 impl RetroAudioBackend {
-    pub const MAX_SAMPLES: usize = 4096;
+    pub const MAX_SAMPLES: usize = 8192;
 
     pub fn new(num_output_channels: u8, output_samplerate: u32) -> Self {
         #[cfg(feature = "profiler")]
