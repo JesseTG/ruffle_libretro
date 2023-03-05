@@ -1,4 +1,3 @@
-use log::debug;
 use ruffle_core::backend::audio::{
     AudioBackend, AudioMixer, DecodeError, RegisterError, SoundHandle, SoundInstanceHandle, SoundTransform,
 };
@@ -36,7 +35,6 @@ impl RetroAudioBackend {
             None
         } else {
             let num_samples = ((self.output_samplerate as usize) / (self.fps as usize)) * 2;
-            debug!("output_samplerate={}, fps={}, num_samples={}", self.output_samplerate, self.fps, num_samples);
 
             Some(&self.output[..num_samples.min(Self::MAX_SAMPLES)])
         }
