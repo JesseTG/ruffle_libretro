@@ -8,7 +8,7 @@ use rust_libretro::sys::{retro_log_level, retro_message_target, retro_message_ty
 use rust_libretro::types::MessageProgress;
 
 const UNSUPPORTED_CONTENT_MESSAGE: &str = "\
-Ruffle doesn't yet support ActionScript 3, which this content requires.
+This content requires ActionScript 3, which Ruffle doesn't support yet.
 Interactivity will be missing or limited.";
 
 const DOWNLOAD_FAILED_MESSAGE: &str = "Ruffle failed to open or download this file.";
