@@ -100,4 +100,8 @@ impl UiBackend for RetroUiBackend {
             );
         }
     }
+
+    fn open_virtual_keyboard(&self) {
+        todo!("Open RetroArch's virtual keyboard");
+    }
 }

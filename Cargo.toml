@@ -20,11 +20,11 @@ isahc = "1.7.2"
 libc = "0.2.139"
 log = "0.4.17"
 profiling = { version = "1.0", features = ["tracy-client"], optional = true }
-ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", features = ["audio", "lzma", "mp3", "nellymoser"] }
-ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", features = ["tessellator"] }
-ruffle_video = { git = "https://github.com/ruffle-rs/ruffle" }
-ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle" }
-ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", features = ["render_debug_labels"] }
+ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b", features = ["audio", "lzma", "mp3", "nellymoser"] }
+ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b", features = ["tessellator"] }
+ruffle_video = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b" }
+ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b" }
+ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b", features = ["render_debug_labels"] }
 rust-libretro = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan", "unstable-env-commands", "strict-bitflags", "log"] }
 rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan"] }
 tap = "1.0.1"
