@@ -1,14 +1,17 @@
 use std::cell::Cell;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 #[cfg(feature = "profiler")]
 use profiling::tracy_client::Client;
+use ruffle_core::PlayerEvent;
 use rust_libretro::contexts::GenericContext;
 use rust_libretro::sys::retro_system_av_info;
 use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
 
 use crate::core::config::Config;
 use crate::core::state::PlayerState;
+use crate::util::mouse::MouseState;
 
 #[derive(CoreOptions)]
 #[categories(
@@ -173,6 +176,8 @@ pub struct Ruffle {
     environ_cb: Arc<Cell<retro_environment_t>>,
     config: Config,
     frontend_preferred_hw_render: retro_hw_context_type,
+    queued_events: VecDeque<PlayerEvent>,
+    mouse_state: MouseState,
     #[cfg(feature = "profiler")]
     tracy_client: Option<Client>,
 }
@@ -186,6 +191,8 @@ impl Ruffle {
             environ_cb: Arc::new(Cell::new(None)),
             config: Config::new(),
             frontend_preferred_hw_render: retro_hw_context_type::RETRO_HW_CONTEXT_NONE,
+            queued_events: VecDeque::with_capacity(16),
+            mouse_state: MouseState::default(),
             #[cfg(feature = "profiler")]
             tracy_client: None,
         }
