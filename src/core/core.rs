@@ -215,9 +215,9 @@ impl Core for Ruffle {
 
         enable_hw_render(ctx, self.frontend_preferred_hw_render)?;
         enable_hw_render_negotiation_interface(ctx, self.frontend_preferred_hw_render)?;
-        let generic_ctx = GenericContext::from(ctx);
+        let ctx = GenericContext::from(ctx);
 
-        generic_ctx.set_input_descriptors(input::INPUT_DESCRIPTORS)?;
+        ctx.set_input_descriptors(input::INPUT_DESCRIPTORS)?;
 
         let game = game.ok_or(CoreError::NoGameProvided)?;
 
