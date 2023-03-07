@@ -386,7 +386,6 @@ impl Core for Ruffle {
             let player = player.deref_mut();
 
             let audio = player.audio_mut();
-            let samples = audio.get_sample_history();
 
             let resampled_samples: [i16; 2048] = [0; 2048];
             ctx.batch_audio_samples(&resampled_samples);
