@@ -1,16 +1,6 @@
 use ruffle_core::events::KeyCode;
 use rust_libretro::sys::{retro_key, retro_mod};
 
-macro_rules! match_key {
-    // This macro takes an argument of designator `ident` and
-    // creates a function named `$func_name`.
-    // The `ident` designator is used for variable/function names.
-    ($retrok:ident, $unshifted:literal, $shifted:literal) => {
-        (_, $retrok) => Some($unshifted),
-        (rust_libretro::sys::retro_mod::RETROKMOD_SHIFT, $retrok) => Some($shifted),
-    };
-}
-
 // TODO: Write a proc_macro to simplify this
 /// Assumes US layout
 pub fn to_key_char(keycode: retro_key, key_modifiers: retro_mod) -> Option<char> {
