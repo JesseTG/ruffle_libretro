@@ -35,7 +35,7 @@ use crate::backend::audio::RetroAudioBackend;
 use crate::backend::log::RetroLogBackend;
 use crate::backend::navigator::RetroNavigatorBackend;
 use crate::backend::render::opengl::OpenGlWgpuRenderBackend;
-use crate::backend::render::vulkan::{negotiation, VulkanWgpuRenderBackend};
+use crate::backend::render::vulkan::VulkanWgpuRenderBackend;
 use crate::backend::render::HardwareRenderError::UnsupportedHardwareContext;
 use crate::backend::render::{enable_hw_render, enable_hw_render_negotiation_interface};
 use crate::backend::storage::RetroVfsStorageBackend;
@@ -171,7 +171,7 @@ impl Core for Ruffle {
                 profiling::scope!("retro_input_poll_t");
                 ctx.poll_input();
             }
-            // TODO: Handle input
+
             let mut player = player.lock().expect("Cannot reenter");
             //self.handle_input(player.deref_mut(), ctx);
 
