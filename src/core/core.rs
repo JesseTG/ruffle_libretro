@@ -165,7 +165,7 @@ impl Core for Ruffle {
             run_span.emit_value(delta as u64);
         }
 
-        if let (Active(player), Some(delta)) = (&self.player, delta_us) {
+        if let (Active(player), Some(delta)) = (&mut self.player, delta_us) {
             {
                 #[cfg(feature = "profiler")]
                 profiling::scope!("retro_input_poll_t");
@@ -173,7 +173,7 @@ impl Core for Ruffle {
             }
             // TODO: Handle input
             let mut player = player.lock().expect("Cannot reenter");
-            let player = player.deref_mut();
+            //self.handle_input(player.deref_mut(), ctx);
 
             {
                 #[cfg(feature = "profiler")]
@@ -198,7 +198,7 @@ impl Core for Ruffle {
                 ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
             }
 
-            Self::send_audio(player, ctx);
+            Self::send_audio(&mut player, ctx);
 
             // TODO: React to changed settings
         }
