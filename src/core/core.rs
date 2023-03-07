@@ -80,9 +80,15 @@ impl Core for Ruffle {
 
         #[cfg(feature = "profiler")]
         profiling::scope!("retro_set_environment");
-        ctx.set_support_no_game(false);
+
+        if let Err(e) = ctx.set_support_no_game(false) {
+            panic!("RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME failed: {e}");
+        }
+
         unsafe {
-            ctx.enable_vfs_interface(3);
+            if let Err(e) = ctx.enable_vfs_interface(3) {
+                panic!("RETRO_ENVIRONMENT_GET_VFS_INTERFACE failed: {e}");
+            }
         }
 
         let ctx = GenericContext::from(ctx);
