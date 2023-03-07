@@ -15,8 +15,7 @@ use ruffle_render::quality::StageQuality;
 use ruffle_render::shape_utils::DistilledShape;
 use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::descriptors::Descriptors;
-use rust_libretro_sys::{retro_environment_t, retro_game_geometry, retro_hw_render_interface_vulkan};
-use thiserror::Error as ThisError;
+use rust_libretro_sys::{retro_game_geometry, retro_hw_render_interface_vulkan};
 use wgpu_hal::api::Vulkan;
 
 use crate::backend::render::vulkan::render_interface::VulkanRenderInterface;
@@ -29,12 +28,6 @@ pub mod negotiation;
 pub mod render_interface;
 mod target;
 mod util;
-
-#[derive(ThisError, Debug)]
-pub enum VulkanRenderBackendError {
-    #[error("Vulkan error in {0}: {1}")]
-    VulkanError(&'static str, ash::vk::Result),
-}
 
 pub struct VulkanWgpuRenderBackend {
     backend: WgpuRenderBackend<RetroTextureTarget>,
