@@ -85,8 +85,8 @@ impl Core for Ruffle {
             ctx.enable_vfs_interface(3);
         }
 
+        let ctx = GenericContext::from(ctx);
         self.environ_cb.set({
-            let ctx = GenericContext::from(ctx);
             let environ_cb = unsafe { ctx.environment_callback() };
             if environ_cb.is_none() {
                 panic!("Frontend passed an invalid environment callback");
