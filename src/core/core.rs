@@ -115,6 +115,10 @@ impl Core for Ruffle {
                 _ => None,
             }
         });
+
+        if let Err(e) = ctx.set_controller_info(input::CONTROLLER_INFO) {
+            panic!("RETRO_ENVIRONMENT_SET_CONTROLLER_INFO failed: {e}");
+        }
     }
 
     fn on_init(&mut self, ctx: &mut InitContext) {
