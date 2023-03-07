@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::ffi::CString;
 use std::ops::DerefMut;
+use std::panic;
 use std::ptr;
 use std::slice::from_raw_parts;
 use std::sync::{Arc, Mutex};
@@ -116,6 +117,12 @@ impl Core for Ruffle {
 
         #[cfg(feature = "profiler")]
         profiling::scope!("retro_init");
+
+        let existing_panic_handler = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            error!("{info}");
+            existing_panic_handler(info);
+        }));
 
         let ctx = GenericContext::from(ctx);
         self.frontend_preferred_hw_render = ctx.get_preferred_hw_render().unwrap();
