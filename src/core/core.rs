@@ -476,7 +476,6 @@ impl Ruffle {
     ) -> Result<Arc<Mutex<Player>>, Box<dyn Error>> {
         #[cfg(feature = "profiler")]
         profiling::scope!("Ruffle::finalize_player");
-        let environ_cb = self.environ_cb.get();
         let av_info = &self
             .av_info
             .expect("av_info should've been initialized in on_load_game");
@@ -499,7 +498,7 @@ impl Ruffle {
             }
             RETRO_HW_CONTEXT_VULKAN => {
                 let render_interface = unsafe { ctx.get_hw_render_interface_vulkan()? };
-                builder.with_renderer(VulkanWgpuRenderBackend::new(environ_cb, &av_info.geometry, &render_interface)?)
+                builder.with_renderer(VulkanWgpuRenderBackend::new(&av_info.geometry, &render_interface)?)
             }
             other => Err(UnsupportedHardwareContext(other))?,
         };

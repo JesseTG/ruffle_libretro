@@ -44,7 +44,6 @@ pub struct VulkanWgpuRenderBackend {
 
 impl VulkanWgpuRenderBackend {
     pub fn new(
-        environ_cb: retro_environment_t,
         geometry: &retro_game_geometry,
         hw_render: &retro_hw_render_interface_vulkan,
     ) -> Result<Self, Box<dyn Error>> {
