@@ -1,5 +1,170 @@
 use ruffle_core::events::KeyCode;
-use rust_libretro::sys::retro_key;
+use rust_libretro::sys::{retro_key, retro_mod};
+
+macro_rules! match_key {
+    // This macro takes an argument of designator `ident` and
+    // creates a function named `$func_name`.
+    // The `ident` designator is used for variable/function names.
+    ($retrok:ident, $unshifted:literal, $shifted:literal) => {
+        (_, $retrok) => Some($unshifted),
+        (rust_libretro::sys::retro_mod::RETROKMOD_SHIFT, $retrok) => Some($shifted),
+    };
+}
+
+// TODO: Write a proc_macro to simplify this
+/// Assumes US layout
+pub fn to_key_char(keycode: retro_key, key_modifiers: retro_mod) -> Option<char> {
+    use rust_libretro::sys::retro_key as key;
+    use rust_libretro::sys::retro_mod as kmod;
+
+    match (key_modifiers, keycode) {
+        // Letters
+        (kmod::RETROKMOD_SHIFT, key::RETROK_a) => Some('A'),
+        (_, key::RETROK_a) => Some('a'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_b) => Some('B'),
+        (_, key::RETROK_b) => Some('b'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_c) => Some('C'),
+        (_, key::RETROK_c) => Some('c'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_d) => Some('D'),
+        (_, key::RETROK_d) => Some('d'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_e) => Some('E'),
+        (_, key::RETROK_e) => Some('e'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_f) => Some('F'),
+        (_, key::RETROK_f) => Some('f'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_g) => Some('G'),
+        (_, key::RETROK_g) => Some('g'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_h) => Some('H'),
+        (_, key::RETROK_h) => Some('h'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_i) => Some('I'),
+        (_, key::RETROK_i) => Some('i'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_j) => Some('J'),
+        (_, key::RETROK_j) => Some('j'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_k) => Some('K'),
+        (_, key::RETROK_k) => Some('k'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_l) => Some('L'),
+        (_, key::RETROK_l) => Some('l'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_m) => Some('M'),
+        (_, key::RETROK_m) => Some('m'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_n) => Some('N'),
+        (_, key::RETROK_n) => Some('n'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_o) => Some('O'),
+        (_, key::RETROK_o) => Some('o'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_p) => Some('P'),
+        (_, key::RETROK_p) => Some('p'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_q) => Some('Q'),
+        (_, key::RETROK_q) => Some('q'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_r) => Some('R'),
+        (_, key::RETROK_r) => Some('r'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_s) => Some('S'),
+        (_, key::RETROK_s) => Some('s'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_t) => Some('T'),
+        (_, key::RETROK_t) => Some('t'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_u) => Some('U'),
+        (_, key::RETROK_u) => Some('u'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_v) => Some('V'),
+        (_, key::RETROK_v) => Some('v'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_w) => Some('W'),
+        (_, key::RETROK_w) => Some('w'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_x) => Some('X'),
+        (_, key::RETROK_x) => Some('x'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_y) => Some('Y'),
+        (_, key::RETROK_y) => Some('y'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_z) => Some('Z'),
+        (_, key::RETROK_z) => Some('z'),
+
+        // Numbers
+        (kmod::RETROKMOD_SHIFT, key::RETROK_1) => Some('!'),
+        (_, key::RETROK_1) => Some('1'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_2) => Some('@'),
+        (_, key::RETROK_2) => Some('2'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_3) => Some('#'),
+        (_, key::RETROK_3) => Some('3'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_4) => Some('$'),
+        (_, key::RETROK_4) => Some('4'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_5) => Some('%'),
+        (_, key::RETROK_5) => Some('5'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_6) => Some('^'),
+        (_, key::RETROK_6) => Some('6'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_7) => Some('&'),
+        (_, key::RETROK_7) => Some('7'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_8) => Some('*'),
+        (_, key::RETROK_8) => Some('8'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_9) => Some('('),
+        (_, key::RETROK_9) => Some('9'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_0) => Some(')'),
+        (_, key::RETROK_0) => Some('0'),
+
+        // Punctuation, no Shift
+        (_, key::RETROK_TAB) => Some('\t'),
+        (_, key::RETROK_RETURN) => Some('\n'),
+        (_, key::RETROK_SPACE) => Some(' '),
+        (_, key::RETROK_EXCLAIM) => Some('!'),
+        (_, key::RETROK_QUOTEDBL) => Some('"'),
+        (_, key::RETROK_HASH) => Some('#'),
+        (_, key::RETROK_DOLLAR) => Some('$'),
+        (_, key::RETROK_AMPERSAND) => Some('&'),
+        (_, key::RETROK_QUOTE) => Some('\''),
+        (_, key::RETROK_LEFTPAREN) => Some('('),
+        (_, key::RETROK_RIGHTPAREN) => Some(')'),
+        (_, key::RETROK_ASTERISK) => Some('*'),
+        (_, key::RETROK_PLUS) => Some('+'),
+        (_, key::RETROK_COLON) => Some(':'),
+        (_, key::RETROK_LESS) => Some('<'),
+        (_, key::RETROK_GREATER) => Some('>'),
+        (_, key::RETROK_QUESTION) => Some('?'),
+        (_, key::RETROK_AT) => Some('@'),
+        (_, key::RETROK_CARET) => Some('^'),
+        (_, key::RETROK_UNDERSCORE) => Some('_'),
+        (_, key::RETROK_LEFTBRACE) => Some('{'),
+        (_, key::RETROK_RIGHTBRACE) => Some('}'),
+        (_, key::RETROK_TILDE) => Some('~'),
+        (_, key::RETROK_BACKSPACE) => Some('\x08'),
+        (_, key::RETROK_EURO) => Some('€'),
+
+        // Punctuation with Shift
+        (kmod::RETROKMOD_SHIFT, key::RETROK_COMMA) => Some('<'),
+        (_, key::RETROK_COMMA) => Some(','),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_MINUS) => Some('_'),
+        (_, key::RETROK_MINUS) => Some('-'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_PERIOD) => Some('>'),
+        (_, key::RETROK_PERIOD) => Some('.'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_SLASH) => Some('?'),
+        (_, key::RETROK_SLASH) => Some('/'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_SEMICOLON) => Some(':'),
+        (_, key::RETROK_SEMICOLON) => Some(';'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_EQUALS) => Some('+'),
+        (_, key::RETROK_EQUALS) => Some('='),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_LEFTBRACKET) => Some('{'),
+        (_, key::RETROK_LEFTBRACKET) => Some('['),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_BACKSLASH) => Some('|'),
+        (_, key::RETROK_BACKSLASH) => Some('\\'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_RIGHTBRACKET) => Some('}'),
+        (_, key::RETROK_RIGHTBRACKET) => Some(']'),
+        (kmod::RETROKMOD_SHIFT, key::RETROK_BACKQUOTE) => Some('~'),
+        (_, key::RETROK_BACKQUOTE) => Some('`'),
+
+        // Numpad
+        (_, key::RETROK_KP0) => Some('0'),
+        (_, key::RETROK_KP1) => Some('1'),
+        (_, key::RETROK_KP2) => Some('2'),
+        (_, key::RETROK_KP3) => Some('3'),
+        (_, key::RETROK_KP4) => Some('4'),
+        (_, key::RETROK_KP5) => Some('5'),
+        (_, key::RETROK_KP6) => Some('6'),
+        (_, key::RETROK_KP7) => Some('7'),
+        (_, key::RETROK_KP8) => Some('8'),
+        (_, key::RETROK_KP9) => Some('9'),
+        (_, key::RETROK_KP_PERIOD) => Some('.'),
+        (_, key::RETROK_KP_DIVIDE) => Some('/'),
+        (_, key::RETROK_KP_MULTIPLY) => Some('*'),
+        (_, key::RETROK_KP_MINUS) => Some('-'),
+        (_, key::RETROK_KP_PLUS) => Some('+'),
+        (_, key::RETROK_KP_ENTER) => Some('\n'),
+        (_, key::RETROK_KP_EQUALS) => Some('='),
+
+        _ => None,
+    }
+}
 
 /// Assumes US layout
 pub fn to_key_code(key: retro_key) -> KeyCode {
