@@ -175,14 +175,8 @@ impl Core for Ruffle {
         }
 
         if let (Active(player), Some(delta)) = (&mut self.player, delta_us) {
-            {
-                #[cfg(feature = "profiler")]
-                profiling::scope!("retro_input_poll_t");
-                ctx.poll_input();
-            }
-
             let mut player = player.lock().expect("Cannot reenter");
-            //self.handle_input(player.deref_mut(), ctx);
+            Self::handle_input(&mut player, &mut self.queued_events, ctx);
 
             {
                 #[cfg(feature = "profiler")]
@@ -192,20 +186,8 @@ impl Core for Ruffle {
                 // Ruffle wants milliseconds, we have microseconds.
             }
 
-            if player.needs_render() {
-                #[cfg(feature = "profiler")]
-                profiling::scope!("Player::render");
-                player.render();
-            }
-
-            let av_info = self.av_info.expect("av_info should've been initialized by now");
-
-            {
-                #[cfg(feature = "profiler")]
-                profiling::scope!("retro_video_refresh_t");
-
-                ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
-            }
+            let av_info = self.av_info.as_ref().expect("av_info should've been initialized");
+            Self::render_graphics(&mut player, av_info, ctx);
 
             Self::send_audio(&mut player, ctx);
 
@@ -381,10 +363,7 @@ impl Core for Ruffle {
             },
         };
 
-        if let Active(player) = &self.player {
-            player.lock().unwrap().handle_event(event);
-        }
-        // TODO: Add these events to a queue, then give them all to the emulator in the main loop
+        self.queued_events.push_back(event);
     }
 
     fn on_write_audio(&mut self, ctx: &mut AudioContext) {
@@ -512,6 +491,39 @@ impl Ruffle {
         };
 
         Ok(builder.build())
+    }
+
+    fn handle_input(player: &mut Player, queued_events: &mut VecDeque<PlayerEvent>, ctx: &mut RunContext) {
+        #[cfg(feature = "profiler")]
+        profiling::scope!("Ruffle::handle_input");
+        {
+            #[cfg(feature = "profiler")]
+            profiling::scope!("retro_input_poll_t");
+            ctx.poll_input();
+        }
+
+        let mouse_left_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT) != 0;
+        let mouse_right_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
+        let mouse_middle_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE) != 0;
+        let mouse_wheel_down = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN) != 0;
+        let mouse_wheel_up = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP) != 0;
+
+        let mouse_state = MouseState::from_context(ctx);
+    }
+
+    fn render_graphics(player: &mut Player, av_info: &retro_system_av_info, ctx: &mut RunContext) {
+        if player.needs_render() {
+            #[cfg(feature = "profiler")]
+            profiling::scope!("Player::render");
+            player.render();
+        }
+
+        {
+            #[cfg(feature = "profiler")]
+            profiling::scope!("retro_video_refresh_t");
+
+            ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
+        }
     }
 
     fn send_audio(player: &mut Player, ctx: &mut RunContext) {
