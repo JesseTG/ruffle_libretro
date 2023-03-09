@@ -209,6 +209,7 @@ impl Core for Ruffle {
         let ctx = GenericContext::from(ctx);
 
         ctx.set_input_descriptors(input::INPUT_DESCRIPTORS)?;
+        ctx.enable_keyboard_callback()?;
 
         let game = game.ok_or(CoreError::NoGameProvided)?;
 
