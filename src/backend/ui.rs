@@ -1,11 +1,11 @@
-use std::cell::Cell;
-use std::sync::Arc;
 use arboard::Clipboard;
-use log::error;
+use log::{error, warn, info};
 use ruffle_core::backend::ui::{FullscreenError, MouseCursor, UiBackend};
 use rust_libretro::environment;
-use rust_libretro::sys::{retro_log_level, retro_message_target, retro_message_type, retro_environment_t};
+use rust_libretro::sys::{retro_environment_t, retro_log_level, retro_message_target, retro_message_type};
 use rust_libretro::types::MessageProgress;
+use std::cell::Cell;
+use std::sync::Arc;
 
 const UNSUPPORTED_CONTENT_MESSAGE: &str = "\
 This content requires ActionScript 3, which Ruffle doesn't support yet.
@@ -57,7 +57,7 @@ impl UiBackend for RetroUiBackend {
     }
 
     fn display_unsupported_message(&self) {
-        unsafe {
+        let result = unsafe {
             environment::set_message_ext(
                 self.environment.get(),
                 UNSUPPORTED_CONTENT_MESSAGE,
@@ -67,12 +67,17 @@ impl UiBackend for RetroUiBackend {
                 retro_message_target::RETRO_MESSAGE_TARGET_ALL,
                 retro_message_type::RETRO_MESSAGE_TYPE_NOTIFICATION,
                 MessageProgress::Indeterminate,
-            );
+            )
+        };
+
+        if let Err(e) = result {
+            warn!("{}", UNSUPPORTED_CONTENT_MESSAGE);
+            warn!("RETRO_ENVIRONMENT_SET_MESSAGE_EXT failed: {e}");
         }
     }
 
     fn display_root_movie_download_failed_message(&self) {
-        unsafe {
+        let result = unsafe {
             environment::set_message_ext(
                 self.environment.get(),
                 DOWNLOAD_FAILED_MESSAGE,
@@ -82,12 +87,17 @@ impl UiBackend for RetroUiBackend {
                 retro_message_target::RETRO_MESSAGE_TARGET_ALL,
                 retro_message_type::RETRO_MESSAGE_TYPE_NOTIFICATION,
                 MessageProgress::Indeterminate,
-            );
+            )
+        };
+
+        if let Err(e) = result {
+            warn!("{}", DOWNLOAD_FAILED_MESSAGE);
+            warn!("RETRO_ENVIRONMENT_SET_MESSAGE_EXT failed: {e}");
         }
     }
 
     fn message(&self, message: &str) {
-        unsafe {
+        let result = unsafe {
             environment::set_message_ext(
                 self.environment.get(),
                 message,
@@ -97,7 +107,12 @@ impl UiBackend for RetroUiBackend {
                 retro_message_target::RETRO_MESSAGE_TARGET_ALL,
                 retro_message_type::RETRO_MESSAGE_TYPE_NOTIFICATION,
                 MessageProgress::Indeterminate,
-            );
+            )
+        };
+
+        if let Err(e) = result {
+            info!("{}", message);
+            warn!("RETRO_ENVIRONMENT_SET_MESSAGE_EXT failed: {e}");
         }
     }
 
