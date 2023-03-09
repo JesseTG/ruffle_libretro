@@ -509,6 +509,12 @@ impl Ruffle {
         let mouse_wheel_up = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP) != 0;
 
         let mouse_state = MouseState::from_context(ctx);
+
+        for e in &mut *queued_events {
+            player.handle_event(*e);
+        }
+
+        queued_events.clear();
     }
 
     fn render_graphics(player: &mut Player, av_info: &retro_system_av_info, ctx: &mut RunContext) {
