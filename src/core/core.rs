@@ -199,6 +199,8 @@ impl Core for Ruffle {
     }
 
     fn on_load_game(&mut self, game: Option<retro_game_info>, ctx: &mut LoadGameContext) -> anyhow::Result<()> {
+        // TODO: Catch panics in here to we can exit gracefully
+
         #[cfg(feature = "profiler")]
         profiling::scope!("retro_load_game");
         ctx.set_pixel_format(PixelFormat::XRGB8888)?;
