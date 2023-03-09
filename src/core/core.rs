@@ -234,7 +234,7 @@ impl Core for Ruffle {
         // TODO: log the game's name to the profiler with Span.emit_value
 
         let buffer = unsafe { from_raw_parts(game.data as *const u8, game.size as usize) };
-        let movie = SwfMovie::from_data(buffer, None, None)
+        let movie = SwfMovie::from_data(buffer, "http://localhost".to_string(), None)
             .ok()
             .ok_or(CoreError::FailedToLoadSwf)?;
 

@@ -12,19 +12,19 @@ crate_type = ["cdylib"]
 [dependencies]
 arboard = "3.2.0"
 ash = "0.37.1"
-bytemuck = { version = "1.12.3", features = ["derive"] }
+bytemuck = { version = "1.13.1", features = ["derive"] }
 futures = "0.3.25"
-gc-arena = { git = "https://github.com/kyren/gc-arena", rev = "318b2ea594dcdadd01f7789025e3b3940be96b2c" }
+gc-arena = { git = "https://github.com/kyren/gc-arena", rev = "1a6310c0d5c98836fa9efb1c4773038ecfd5a92e" }
 glow = "0.11.2"
 isahc = "1.7.2"
 libc = "0.2.139"
 log = "0.4.17"
 profiling = { version = "1.0", features = ["tracy-client"], optional = true }
-ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b", features = ["audio", "lzma", "mp3", "nellymoser"] }
-ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b", features = ["tessellator"] }
-ruffle_video = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b" }
-ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b" }
-ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", rev = "3cb307b", features = ["render_debug_labels"] }
+ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9", features = ["audio", "lzma", "mp3", "nellymoser"] }
+ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9", features = ["tessellator"] }
+ruffle_video = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9" }
+ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9" }
+ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9", features = ["render_debug_labels"] }
 rust-libretro = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan", "unstable-env-commands", "strict-bitflags", "log"] }
 rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan"] }
 tap = "1.0.1"
