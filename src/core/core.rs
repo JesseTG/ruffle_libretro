@@ -82,7 +82,7 @@ impl Core for Ruffle {
         profiling::scope!("retro_set_environment");
 
         if let Err(e) = ctx.set_support_no_game(false) {
-            panic!("RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME failed: {e}");
+            warn!("RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME failed: {e}");
         }
 
         unsafe {
@@ -117,7 +117,7 @@ impl Core for Ruffle {
         });
 
         if let Err(e) = ctx.set_controller_info(input::CONTROLLER_INFO) {
-            panic!("RETRO_ENVIRONMENT_SET_CONTROLLER_INFO failed: {e}");
+            warn!("RETRO_ENVIRONMENT_SET_CONTROLLER_INFO failed: {e}");
         }
     }
 
@@ -152,7 +152,6 @@ impl Core for Ruffle {
     }
 
     fn on_set_controller_port_device(&mut self, _port: u32, _device: u32, _ctx: &mut GenericContext) {
-        todo!()
     }
 
     fn on_reset(&mut self, _ctx: &mut ResetContext) {
