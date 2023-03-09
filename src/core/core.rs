@@ -207,7 +207,7 @@ impl Core for Ruffle {
                 ctx.draw_hardware_frame(av_info.geometry.max_width, av_info.geometry.max_height, 0);
             }
 
-            Self::send_audio(&mut player, ctx);
+            Self::handle_audio(&mut player, ctx);
 
             // TODO: React to changed settings
         }
@@ -514,9 +514,9 @@ impl Ruffle {
         Ok(builder.build())
     }
 
-    fn send_audio(player: &mut Player, ctx: &mut RunContext) {
+    fn handle_audio(player: &mut Player, ctx: &mut RunContext) {
         #[cfg(feature = "profiler")]
-        profiling::scope!("retro_run::send_audio");
+        profiling::scope!("retro_run::handle_audio");
         let audio = player
             .audio()
             .downcast_ref::<RetroAudioBackend>()
