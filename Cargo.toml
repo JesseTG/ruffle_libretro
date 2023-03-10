@@ -13,6 +13,7 @@ crate_type = ["cdylib"]
 arboard = "3.2.0"
 ash = "0.37.1"
 bytemuck = { version = "1.13.1", features = ["derive"] }
+euclid = "0.22.7"
 futures = "0.3.25"
 gc-arena = { git = "https://github.com/kyren/gc-arena", rev = "1a6310c0d5c98836fa9efb1c4773038ecfd5a92e" }
 glow = "0.11.2"
