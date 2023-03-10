@@ -18,7 +18,15 @@ pub const CONTROLLER_DESCRIPTIONS: &[retro_controller_description] = &[
     retro_controller_description {
         desc: c_char_ptr!("Keyboard"),
         id: RETRO_DEVICE_KEYBOARD,
-    }
+    },
+    retro_controller_description {
+        desc: c_char_ptr!("Mouse"),
+        id: RETRO_DEVICE_MOUSE,
+    },
+    retro_controller_description {
+        desc: c_char_ptr!("Pointer"),
+        id: RETRO_DEVICE_POINTER,
+    },
 ];
 pub const CONTROLLER_INFO: &[retro_controller_info] = &[
     retro_controller_info {

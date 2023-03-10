@@ -17,7 +17,6 @@ pub struct RetroUiBackend {
     clipboard: Clipboard,
     cursor_visible: bool,
     cursor: MouseCursor,
-    cursor_position: (i32, i32),
     environment: Arc<Cell<retro_environment_t>>,
 }
 
@@ -26,7 +25,6 @@ impl RetroUiBackend {
         Self {
             clipboard: Clipboard::new().unwrap(),
             cursor_visible: true,
-            cursor_position: (0, 0),
             cursor: MouseCursor::Arrow,
             environment,
         }

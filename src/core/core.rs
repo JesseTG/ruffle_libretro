@@ -8,6 +8,7 @@ use std::slice::from_raw_parts;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use euclid::Vector2D;
 use futures::executor::block_on;
 use log::{debug, error, info, warn};
 
@@ -45,6 +46,7 @@ use crate::core::config::defaults;
 use crate::core::state::PlayerState::*;
 use crate::core::{input, Ruffle};
 use crate::options::{FileAccessPolicy, WebBrowserAccess};
+use crate::util::mouse::MouseState;
 use crate::{built_info, util};
 
 #[derive(ThisError, Debug)]
@@ -176,8 +178,9 @@ impl Core for Ruffle {
         }
 
         if let (Active(player), Some(delta)) = (&mut self.player, delta_us) {
+            let av_info = self.av_info.as_ref().expect("av_info should've been initialized");
             let mut player = player.lock().expect("Cannot reenter");
-            Self::handle_input(&mut player, &mut self.queued_events, ctx);
+            Self::handle_input(&mut player, &mut self.mouse_state, &av_info.geometry, &mut self.queued_events, ctx);
 
             {
                 #[cfg(feature = "profiler")]
@@ -187,7 +190,6 @@ impl Core for Ruffle {
                 // Ruffle wants milliseconds, we have microseconds.
             }
 
-            let av_info = self.av_info.as_ref().expect("av_info should've been initialized");
             Self::render_graphics(&mut player, av_info, ctx);
 
             Self::send_audio(&mut player, ctx);
@@ -497,7 +499,13 @@ impl Ruffle {
         Ok(builder.build())
     }
 
-    fn handle_input(player: &mut Player, queued_events: &mut VecDeque<PlayerEvent>, ctx: &mut RunContext) {
+    fn handle_input(
+        player: &mut Player,
+        mouse_state: &mut MouseState,
+        geometry: &retro_game_geometry,
+        queued_events: &mut VecDeque<PlayerEvent>,
+        ctx: &mut RunContext
+    ) {
         #[cfg(feature = "profiler")]
         profiling::scope!("Ruffle::handle_input");
         {
@@ -506,19 +514,48 @@ impl Ruffle {
             ctx.poll_input();
         }
 
-        let mouse_left_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT) != 0;
-        let mouse_right_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
-        let mouse_middle_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE) != 0;
-        let mouse_wheel_down = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN) != 0;
-        let mouse_wheel_up = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP) != 0;
+        let new_mouse_state = mouse_state.from_context(geometry, ctx);
 
-        let mouse_state = MouseState::from_context(ctx);
+        if mouse_state.delta != Vector2D::zero() {
+            queued_events.push_back(PlayerEvent::MouseMove {
+                x: new_mouse_state.position.x as f64,
+                y: new_mouse_state.position.y as f64,
+            });
+        }
+
+        match (mouse_state.button, new_mouse_state.button) {
+            (Some(old_button), None) => queued_events.push_back(PlayerEvent::MouseUp {
+                x: new_mouse_state.position.x as f64,
+                y: new_mouse_state.position.y as f64,
+                button: old_button,
+            }),
+            (None, Some(new_button)) => queued_events.push_back(PlayerEvent::MouseDown {
+                x: new_mouse_state.position.x as f64,
+                y: new_mouse_state.position.y as f64,
+                button: new_button,
+            }),
+            (Some(old_button), Some(new_button)) => {
+                queued_events.push_back(PlayerEvent::MouseUp {
+                    x: new_mouse_state.position.x as f64,
+                    y: new_mouse_state.position.y as f64,
+                    button: old_button,
+                });
+
+                queued_events.push_back(PlayerEvent::MouseDown {
+                    x: new_mouse_state.position.x as f64,
+                    y: new_mouse_state.position.y as f64,
+                    button: new_button,
+                });
+            }
+            _ => {}
+        };
 
         for e in &mut *queued_events {
             player.handle_event(*e);
         }
 
         queued_events.clear();
+        *mouse_state = new_mouse_state;
     }
 
     fn render_graphics(player: &mut Player, av_info: &retro_system_av_info, ctx: &mut RunContext) {
