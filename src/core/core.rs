@@ -355,7 +355,8 @@ impl Core for Ruffle {
         }
     }
 
-    fn on_keyboard_event(&mut self, down: bool, keycode: retro_key, _character: u32, _key_modifiers: retro_mod) {
+    fn on_keyboard_event(&mut self, down: bool, keycode: retro_key, character: u32, key_modifiers: retro_mod) {
+        debug!("retro_keyboard_callback_fn(down = {down}, keycode = {keycode:?}, character = {character}, key_modifiers = {key_modifiers:?})");
         #[cfg(feature = "profiler")]
         profiling::scope!("retro_keyboard_callback::callback");
         let event = match (down, keycode) {
