@@ -154,8 +154,7 @@ impl Core for Ruffle {
         }
     }
 
-    fn on_set_controller_port_device(&mut self, _port: u32, _device: u32, _ctx: &mut GenericContext) {
-    }
+    fn on_set_controller_port_device(&mut self, _port: u32, _device: u32, _ctx: &mut GenericContext) {}
 
     fn on_reset(&mut self, _ctx: &mut ResetContext) {
         debug!("Core::on_reset()");
