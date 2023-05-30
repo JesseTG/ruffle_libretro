@@ -14,18 +14,18 @@ arboard = "3.2.0"
 ash = "0.37.1"
 bytemuck = { version = "1.13.1", features = ["derive"] }
 euclid = "0.22.7"
-futures = "0.3.25"
-gc-arena = { git = "https://github.com/kyren/gc-arena", rev = "1a6310c0d5c98836fa9efb1c4773038ecfd5a92e" }
+futures = "0.3.28"
+gc-arena = { git = "https://github.com/kyren/gc-arena", rev = "fcc8764362d25f8724912dd7f09f2405779ec053" }
 glow = "0.11.2"
 isahc = "1.7.2"
 libc = "0.2.139"
 log = "0.4.17"
 profiling = { version = "1.0", features = ["tracy-client"], optional = true }
-ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9", features = ["audio", "lzma", "mp3", "nellymoser"] }
-ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9", features = ["tessellator"] }
-ruffle_video = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9" }
-ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9" }
-ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", rev = "fc223e9", features = ["render_debug_labels"] }
+ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82", features = ["audio", "lzma", "mp3", "nellymoser"] }
+ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82", features = ["tessellator"] }
+ruffle_video = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82" }
+ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82" }
+ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82", features = ["render_debug_labels"] }
 rust-libretro = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan", "unstable-env-commands", "strict-bitflags", "log"] }
 rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan"] }
 tap = "1.0.1"
@@ -34,10 +34,10 @@ tracy-client = "0.15.1"
 tracy-client-sys = {version = "0.20.0", features = ["manual-lifetime", "delayed-init"]}
 url = "2.3.1"
 webbrowser = "0.8.2"
-wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181", features = ["angle", "expose-ids"] }
-wgpu-core = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181" }
-wgpu-hal = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181", features = ["gles", "vulkan"] }
-wgpu-types = { git = "https://github.com/gfx-rs/wgpu", rev = "c5851275c59b1d5d949b142d6aa973d0bb638181" }
+wgpu = { version = "0.16", features = [ "angle", "expose-ids" ] }
+wgpu-core = { version = "0.16" }
+wgpu-hal = { version = "0.16", features = ["gles", "vulkan"] }
+wgpu-types = { version = "0.16" }
 
 [features]
 default = []

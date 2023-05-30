@@ -44,6 +44,10 @@ impl UiBackend for RetroUiBackend {
         self.cursor = cursor;
     }
 
+    fn clipboard_content(&mut self) -> String {
+        todo!()
+    }
+
     fn set_clipboard_content(&mut self, content: String) {
         if let Err(error) = self.clipboard.set_text(content) {
             error!("[ruffle] Failed to set clipboard content: {error}");
@@ -116,5 +120,9 @@ impl UiBackend for RetroUiBackend {
 
     fn open_virtual_keyboard(&self) {
         todo!("Open RetroArch's virtual keyboard");
+    }
+
+    fn language(&self) -> &ruffle_core::backend::ui::LanguageIdentifier {
+        todo!()
     }
 }

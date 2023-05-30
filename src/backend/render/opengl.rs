@@ -99,25 +99,6 @@ impl RenderBackend for OpenGlWgpuRenderBackend {
         self.backend.register_shape(shape, bitmap_source)
     }
 
-    fn replace_shape(&mut self, shape: DistilledShape, bitmap_source: &dyn BitmapSource, handle: ShapeHandle) {
-        self.backend.replace_shape(shape, bitmap_source, handle)
-    }
-
-    fn register_glyph_shape(&mut self, shape: &Glyph) -> ShapeHandle {
-        self.backend.register_glyph_shape(shape)
-    }
-
-    fn render_offscreen(
-        &mut self,
-        handle: BitmapHandle,
-        width: u32,
-        height: u32,
-        commands: CommandList,
-        quality: StageQuality,
-    ) -> Option<Box<dyn SyncHandle>> {
-        self.backend.render_offscreen(handle, width, height, commands, quality)
-    }
-
     fn submit_frame(&mut self, clear: Color, commands: CommandList) {
         self.backend.submit_frame(clear, commands)
     }
@@ -126,34 +107,58 @@ impl RenderBackend for OpenGlWgpuRenderBackend {
         self.backend.register_bitmap(bitmap)
     }
 
-    fn update_texture(
-        &mut self,
-        bitmap: &BitmapHandle,
-        width: u32,
-        height: u32,
-        rgba: Vec<u8>,
-    ) -> Result<(), RuffleError> {
-        self.backend.update_texture(bitmap, width, height, rgba)
-    }
-
     fn create_context3d(&mut self) -> Result<Box<dyn Context3D>, RuffleError> {
         self.backend.create_context3d()
     }
 
-    fn context3d_present<'gc>(
+    fn set_quality(&mut self, quality: StageQuality) {
+        self.backend.set_quality(quality)
+    }
+
+    fn name(&self) -> &'static str {
+        self.backend.name()
+    }
+
+    fn render_offscreen(
         &mut self,
-        context: &mut dyn Context3D,
-        commands: Vec<Context3DCommand<'gc>>,
-        mc: MutationContext<'gc, '_>,
+        handle: BitmapHandle,
+        commands: CommandList,
+        quality: StageQuality,
+        bounds: ruffle_render::bitmap::PixelRegion,
+    ) -> Option<Box<dyn SyncHandle>> {
+        self.backend.render_offscreen(handle, commands, quality, bounds)
+    }
+
+    fn update_texture(
+        &mut self,
+        handle: &BitmapHandle,
+        bitmap: Bitmap,
+        region: ruffle_render::bitmap::PixelRegion,
     ) -> Result<(), RuffleError> {
-        self.backend.context3d_present(context, commands, mc)
+        self.backend.update_texture(handle, bitmap, region)
+    }
+
+    fn context3d_present(&mut self, context: &mut dyn Context3D) -> Result<(), RuffleError> {
+        self.backend.context3d_present(context)
     }
 
     fn debug_info(&self) -> Cow<'static, str> {
         self.backend.debug_info()
     }
 
-    fn set_quality(&mut self, quality: StageQuality) {
-        todo!()
+    fn apply_filter(
+        &mut self,
+        source: BitmapHandle,
+        source_point: (u32, u32),
+        source_size: (u32, u32),
+        destination: BitmapHandle,
+        dest_point: (u32, u32),
+        filter: ruffle_render::filters::Filter,
+    ) -> Option<Box<dyn SyncHandle>> {
+        self.backend.apply_filter(source, source_point, source_size, destination, dest_point, filter)
+    }
+
+    fn is_filter_supported(&self, filter: &ruffle_render::filters::Filter) -> bool {
+        self.backend.is_filter_supported(filter)
     }
 }

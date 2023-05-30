@@ -7,7 +7,7 @@ use log::{debug, warn};
 use ruffle_core::swf::Glyph;
 use ruffle_core::Color;
 use ruffle_render::backend::{Context3D, Context3DCommand, RenderBackend, ShapeHandle, ViewportDimensions};
-use ruffle_render::bitmap::{Bitmap, BitmapHandle, BitmapSource, SyncHandle};
+use ruffle_render::bitmap::{Bitmap, BitmapHandle, BitmapSource, SyncHandle, PixelRegion};
 use ruffle_render::commands::CommandList;
 use ruffle_render::error::Error as RuffleError;
 use ruffle_render::filters::Filter;
@@ -79,29 +79,16 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         self.backend.register_shape(shape, bitmap_source)
     }
 
-    fn replace_shape(&mut self, shape: DistilledShape, bitmap_source: &dyn BitmapSource, handle: ShapeHandle) {
-        #[cfg(feature = "profiler")]
-        profiling::scope!("VulkanWgpuRenderBackend::replace_shape");
-        self.backend.replace_shape(shape, bitmap_source, handle)
-    }
-
-    fn register_glyph_shape(&mut self, shape: &Glyph) -> ShapeHandle {
-        #[cfg(feature = "profiler")]
-        profiling::scope!("VulkanWgpuRenderBackend::register_glyph_shape");
-        self.backend.register_glyph_shape(shape)
-    }
-
     fn render_offscreen(
         &mut self,
         handle: BitmapHandle,
-        width: u32,
-        height: u32,
         commands: CommandList,
         quality: StageQuality,
-    ) -> Option<Box<(dyn SyncHandle + 'static)>> {
+        bounds: PixelRegion,
+    ) -> Option<Box<(dyn SyncHandle)>> {
         #[cfg(feature = "profiler")]
         profiling::scope!("VulkanWgpuRenderBackend::render_offscreen");
-        self.backend.render_offscreen(handle, width, height, commands, quality)
+        self.backend.render_offscreen(handle, commands, quality, bounds)
     }
 
     fn apply_filter(
@@ -117,6 +104,10 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         profiling::scope!("VulkanWgpuRenderBackend::apply_filter");
         self.backend
             .apply_filter(source, source_point, source_size, destination, dest_point, filter)
+    }
+
+    fn is_filter_supported(&self, _filter: &Filter) -> bool {
+        false
     }
 
     fn submit_frame(&mut self, clear: Color, commands: CommandList) {
@@ -136,14 +127,13 @@ impl RenderBackend for VulkanWgpuRenderBackend {
 
     fn update_texture(
         &mut self,
-        bitmap: &BitmapHandle,
-        width: u32,
-        height: u32,
-        rgba: Vec<u8>,
+        handle: &BitmapHandle,
+        bitmap: Bitmap,
+        region: PixelRegion
     ) -> Result<(), RuffleError> {
         #[cfg(feature = "profiler")]
         profiling::scope!("VulkanWgpuRenderBackend::update_texture");
-        self.backend.update_texture(bitmap, width, height, rgba)
+        self.backend.update_texture(handle, bitmap, region)
     }
 
     fn create_context3d(&mut self) -> Result<Box<dyn Context3D>, RuffleError> {
@@ -154,13 +144,11 @@ impl RenderBackend for VulkanWgpuRenderBackend {
 
     fn context3d_present<'gc>(
         &mut self,
-        context: &mut dyn Context3D,
-        commands: Vec<Context3DCommand<'gc>>,
-        mc: MutationContext<'gc, '_>,
+        context: &mut dyn Context3D
     ) -> Result<(), RuffleError> {
         #[cfg(feature = "profiler")]
         profiling::scope!("VulkanWgpuRenderBackend::context3d_present");
-        self.backend.context3d_present(context, commands, mc)
+        self.backend.context3d_present(context)
     }
 
     fn debug_info(&self) -> Cow<'static, str> {
@@ -173,6 +161,10 @@ impl RenderBackend for VulkanWgpuRenderBackend {
         #[cfg(feature = "profiler")]
         profiling::scope!("VulkanWgpuRenderBackend::set_quality");
         self.backend.set_quality(quality)
+    }
+
+    fn name(&self) -> &'static str {
+        "Vulkan (wgpu)"
     }
 }
 

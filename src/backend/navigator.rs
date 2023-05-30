@@ -71,8 +71,8 @@ impl<'a> RetroNavigatorBackend<'a> {
 impl<'a> NavigatorBackend for RetroNavigatorBackend<'a> {
     fn navigate_to_url(
         &self,
-        url: String,
-        _target: String,
+        url: &str,
+        _target: &str,
         vars_method: Option<(NavigationMethod, IndexMap<String, String>)>,
     ) {
         //TODO: Should we return a result for failed opens? Does Flash care?
