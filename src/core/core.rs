@@ -534,7 +534,7 @@ impl Ruffle {
                 y: new_mouse_state.position.y as f64,
                 button: new_button,
             }),
-            (Some(old_button), Some(new_button)) => {
+            (Some(old_button), Some(new_button)) if old_button != new_button => {
                 queued_events.push_back(PlayerEvent::MouseUp {
                     x: new_mouse_state.position.x as f64,
                     y: new_mouse_state.position.y as f64,
