@@ -1,54 +1,48 @@
-use crate::options::{FileAccessPolicy, WebBrowserAccess};
-use ruffle_core::config::Letterbox;
-use ruffle_core::LoadBehavior;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub struct Config {
-    pub(crate) autoplay: bool,
-    pub(crate) letterbox: Letterbox,
-    pub(crate) max_execution_duration: Duration,
-    pub(crate) warn_on_unsupported_content: bool,
-    pub(crate) load_behavior: LoadBehavior,
-    pub(crate) file_access_policy: FileAccessPolicy,
-    pub(crate) web_browser_access: WebBrowserAccess,
-    pub(crate) spoofed_url: Option<String>,
-    pub(crate) sample_rate: u32,
-    pub(crate) msaa: u8,
-    pub(crate) upgrade_to_https: bool,
+use ruffle_render::quality::StageQuality;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebBrowserAccess {
+    Ignore,
+    Notify,
+    OpenInBrowser,
 }
 
-impl Config {
-    pub fn new() -> Self {
-        Self {
-            autoplay: defaults::AUTOPLAY,
-            letterbox: defaults::LETTERBOX,
-            max_execution_duration: defaults::MAX_EXECUTION_DURATION,
-            warn_on_unsupported_content: defaults::WARN_ON_UNSUPPORTED_CONTENT,
-            load_behavior: defaults::LOAD_BEHAVIOR,
-            file_access_policy: defaults::FILE_ACCESS_POLICY,
-            web_browser_access: defaults::WEB_BROWSER_ACCESS,
-            spoofed_url: None,
-            sample_rate: defaults::SAMPLE_RATE,
-            msaa: defaults::MSAA,
-            upgrade_to_https: defaults::UPGRADE_TO_HTTPS,
-        }
+/// Shared with the navigator, so a changed option applies to a movie that's already running.
+#[derive(Debug, Clone)]
+pub struct SharedWebBrowserAccess(Arc<Mutex<WebBrowserAccess>>);
+
+impl SharedWebBrowserAccess {
+    pub fn get(&self) -> WebBrowserAccess {
+        *self.0.lock().expect("lock poisoned")
+    }
+
+    pub fn set(&self, access: WebBrowserAccess) {
+        *self.0.lock().expect("lock poisoned") = access;
     }
 }
 
-pub mod defaults {
-    use ruffle_core::config::Letterbox;
-    use ruffle_core::LoadBehavior;
-    use std::time::Duration;
-    use crate::options::{FileAccessPolicy, WebBrowserAccess};
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub quality: StageQuality,
+    pub max_execution_duration: Duration,
+    pub web_browser_access: SharedWebBrowserAccess,
+    pub spoofed_url: Option<String>,
+    pub sample_rate: u32,
+    pub upgrade_to_https: bool,
+}
 
-    pub const AUTOPLAY: bool = true;
-    pub const LETTERBOX: Letterbox = Letterbox::Fullscreen;
-    pub const MAX_EXECUTION_DURATION: Duration = Duration::from_secs(15);
-    pub const MSAA: u8 = 0;
-    pub const WARN_ON_UNSUPPORTED_CONTENT: bool = true;
-    pub const LOAD_BEHAVIOR: LoadBehavior = LoadBehavior::Streaming;
-    pub const FILE_ACCESS_POLICY: FileAccessPolicy = FileAccessPolicy::Never;
-    pub const WEB_BROWSER_ACCESS: WebBrowserAccess = WebBrowserAccess::Ignore;
-    pub const SAMPLE_RATE: u32 = 44100;
-    pub const UPGRADE_TO_HTTPS: bool = true;
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            quality: StageQuality::High,
+            max_execution_duration: Duration::from_secs(15),
+            web_browser_access: SharedWebBrowserAccess(Arc::new(Mutex::new(WebBrowserAccess::Notify))),
+            spoofed_url: None,
+            sample_rate: 44100,
+            upgrade_to_https: true,
+        }
+    }
 }

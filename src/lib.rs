@@ -3,9 +3,8 @@ use rust_libretro::retro_core;
 use crate::core::Ruffle;
 
 mod backend;
-mod util;
 mod core;
-mod options;
+mod util;
 
 pub mod built_info {
     // The file has been placed there by the build script.
@@ -13,4 +12,3 @@ pub mod built_info {
 }
 
 retro_core!(Ruffle::new());
-

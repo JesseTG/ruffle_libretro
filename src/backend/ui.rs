@@ -1,33 +1,46 @@
 use arboard::Clipboard;
-use log::{error, warn, info};
-use ruffle_core::backend::ui::{FullscreenError, MouseCursor, UiBackend};
-use rust_libretro::environment;
-use rust_libretro::sys::{retro_environment_t, retro_log_level, retro_message_target, retro_message_type};
-use rust_libretro::types::MessageProgress;
-use std::cell::Cell;
-use std::sync::Arc;
+use log::{warn, Level};
+use ruffle_core::backend::ui::{
+    DialogResultFuture, FileDialogResult, FileFilter, FontDefinition, FullscreenError, LanguageIdentifier,
+    MouseCursor, MultiDialogResultFuture, MultiFileDialogResult, UiBackend, US_ENGLISH,
+};
+use ruffle_core::font::FontQuery;
+use rust_libretro::sys::retro_environment_t;
+use url::Url;
 
-const UNSUPPORTED_CONTENT_MESSAGE: &str = "\
-This content requires ActionScript 3, which Ruffle doesn't support yet.
-Interactivity will be missing or limited.";
-
-const DOWNLOAD_FAILED_MESSAGE: &str = "Ruffle failed to open or download this file.";
+use crate::util::message;
 
 pub struct RetroUiBackend {
-    clipboard: Clipboard,
+    environ_cb: retro_environment_t,
+    /// Created on first use, since not every host has a clipboard
+    /// (e.g. a console, or a Linux session without X11 or Wayland).
+    clipboard: Option<Clipboard>,
+    clipboard_failed: bool,
     cursor_visible: bool,
-    cursor: MouseCursor,
-    environment: Arc<Cell<retro_environment_t>>,
 }
 
 impl RetroUiBackend {
-    pub fn new(environment: Arc<Cell<retro_environment_t>>) -> Self {
+    pub fn new(environ_cb: retro_environment_t) -> Self {
         Self {
-            clipboard: Clipboard::new().unwrap(),
+            environ_cb,
+            clipboard: None,
+            clipboard_failed: false,
             cursor_visible: true,
-            cursor: MouseCursor::Arrow,
-            environment,
         }
+    }
+
+    fn clipboard(&mut self) -> Option<&mut Clipboard> {
+        if self.clipboard.is_none() && !self.clipboard_failed {
+            match Clipboard::new() {
+                Ok(clipboard) => self.clipboard = Some(clipboard),
+                Err(e) => {
+                    warn!("Clipboard is unavailable: {e}");
+                    self.clipboard_failed = true;
+                }
+            }
+        }
+
+        self.clipboard.as_mut()
     }
 }
 
@@ -40,89 +53,78 @@ impl UiBackend for RetroUiBackend {
         self.cursor_visible = visible;
     }
 
-    fn set_mouse_cursor(&mut self, cursor: MouseCursor) {
-        self.cursor = cursor;
+    fn set_mouse_cursor(&mut self, _cursor: MouseCursor) {
+        // libretro has no way to change the frontend's cursor.
     }
 
     fn clipboard_content(&mut self) -> String {
-        todo!()
+        self.clipboard()
+            .and_then(|clipboard| clipboard.get_text().ok())
+            .unwrap_or_default()
     }
 
     fn set_clipboard_content(&mut self, content: String) {
-        if let Err(error) = self.clipboard.set_text(content) {
-            error!("[ruffle] Failed to set clipboard content: {error}");
+        if let Some(clipboard) = self.clipboard() {
+            if let Err(e) = clipboard.set_text(content) {
+                warn!("Failed to set clipboard content: {e}");
+            }
         }
     }
 
     fn set_fullscreen(&mut self, _is_full: bool) -> Result<(), FullscreenError> {
-        todo!()
+        // The frontend owns the window, so there's nothing to change.
+        Ok(())
     }
 
-    fn display_unsupported_message(&self) {
-        let result = unsafe {
-            environment::set_message_ext(
-                self.environment.get(),
-                UNSUPPORTED_CONTENT_MESSAGE,
-                3000,
-                0,
-                retro_log_level::RETRO_LOG_WARN,
-                retro_message_target::RETRO_MESSAGE_TARGET_ALL,
-                retro_message_type::RETRO_MESSAGE_TYPE_NOTIFICATION,
-                MessageProgress::Indeterminate,
-            )
-        };
-
-        if let Err(e) = result {
-            warn!("{}", UNSUPPORTED_CONTENT_MESSAGE);
-            warn!("RETRO_ENVIRONMENT_SET_MESSAGE_EXT failed: {e}");
-        }
-    }
-
-    fn display_root_movie_download_failed_message(&self) {
-        let result = unsafe {
-            environment::set_message_ext(
-                self.environment.get(),
-                DOWNLOAD_FAILED_MESSAGE,
-                3000,
-                0,
-                retro_log_level::RETRO_LOG_WARN,
-                retro_message_target::RETRO_MESSAGE_TARGET_ALL,
-                retro_message_type::RETRO_MESSAGE_TYPE_NOTIFICATION,
-                MessageProgress::Indeterminate,
-            )
-        };
-
-        if let Err(e) = result {
-            warn!("{}", DOWNLOAD_FAILED_MESSAGE);
-            warn!("RETRO_ENVIRONMENT_SET_MESSAGE_EXT failed: {e}");
-        }
+    fn display_root_movie_download_failed_message(&self, _invalid_swf: bool, fetch_error: String) {
+        message::show(
+            self.environ_cb,
+            &format!("Ruffle failed to open this file: {fetch_error}"),
+            5000,
+            Level::Error,
+        );
     }
 
     fn message(&self, message: &str) {
-        let result = unsafe {
-            environment::set_message_ext(
-                self.environment.get(),
-                message,
-                1000,
-                0,
-                retro_log_level::RETRO_LOG_INFO,
-                retro_message_target::RETRO_MESSAGE_TARGET_ALL,
-                retro_message_type::RETRO_MESSAGE_TYPE_NOTIFICATION,
-                MessageProgress::Indeterminate,
-            )
-        };
-
-        if let Err(e) = result {
-            info!("{}", message);
-            warn!("RETRO_ENVIRONMENT_SET_MESSAGE_EXT failed: {e}");
-        }
+        message::show(self.environ_cb, message, 3000, Level::Info);
     }
 
-    fn open_virtual_keyboard(&self) {
-        todo!("Open RetroArch's virtual keyboard");
+    fn open_virtual_keyboard(&self) {}
+
+    fn close_virtual_keyboard(&self) {}
+
+    fn language(&self) -> LanguageIdentifier {
+        US_ENGLISH.clone()
     }
 
-    fn language(&self) -> &ruffle_core::backend::ui::LanguageIdentifier {
-        todo!()
+    fn display_unsupported_video(&self, url: Url) {
+        message::show(
+            self.environ_cb,
+            &format!("This movie contains video that Ruffle can't play: {url}"),
+            5000,
+            Level::Warn,
+        );
     }
+
+    fn load_device_font(&self, _query: &FontQuery, _register: &mut dyn FnMut(FontDefinition)) {
+        // No system font lookup; Ruffle falls back to its bundled Noto Sans.
+    }
+
+    fn sort_device_fonts(&self, _query: &FontQuery, _register: &mut dyn FnMut(FontDefinition)) -> Vec<FontQuery> {
+        Vec::new()
+    }
+
+    fn display_file_open_dialog(&mut self, _filters: Vec<FileFilter>) -> Option<DialogResultFuture> {
+        Some(Box::pin(async move { Ok(FileDialogResult::Canceled) }))
+    }
+
+    fn display_file_open_dialog_multiple(&mut self, _filters: Vec<FileFilter>) -> Option<MultiDialogResultFuture> {
+        Some(Box::pin(async move { Ok(MultiFileDialogResult::Canceled) }))
+    }
+
+    fn display_file_save_dialog(&mut self, _file_name: String, _title: String) -> Option<DialogResultFuture> {
+        None
+    }
+
+    fn close_file_dialog(&mut self) {}
 }

@@ -1,17 +1,14 @@
-use std::cell::Cell;
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::path::PathBuf;
 
-#[cfg(feature = "profiler")]
-use profiling::tracy_client::Client;
 use ruffle_core::PlayerEvent;
-use rust_libretro::contexts::GenericContext;
-use rust_libretro::sys::retro_system_av_info;
-use rust_libretro::{contexts::*, proc::CoreOptions, sys::*};
+use rust_libretro::proc::CoreOptions;
+#[allow(unused_imports)] // The CoreOptions derive needs these in scope.
+use rust_libretro::{contexts::*, sys::*};
 
 use crate::core::config::Config;
-use crate::core::state::PlayerState;
-use crate::util::mouse::MouseState;
+use crate::core::session::Session;
+use crate::util::keyboard::KeyboardState;
 
 #[derive(CoreOptions)]
 #[categories(
@@ -28,173 +25,111 @@ use crate::util::mouse::MouseState;
 {
     "content_settings",
     "Content",
-    "Options related to content."
+    "Options related to how content behaves."
 }
 )]
 #[options(
 {
-    "ruffle_autoplay",
-    "Video > Autoplay",
-    "Autoplay",
-    "Setting 'Video > Autoplay' will start playing the movie immediately upon load.",
-    "",
+    "ruffle_quality",
+    "Video > Quality",
+    "Quality",
+    "Default rendering quality. Higher settings use more anti-aliasing. Content can change this itself.",
+    "Default rendering quality. Higher settings use more anti-aliasing. Content can change this itself.",
     "video_settings",
     {
-        { "true" },
-        { "false" },
-    }
-},
-{
-    "ruffle_letterbox",
-    "Video > Letterbox",
-    "Letterbox",
-    "Controls whether the content is letterboxed or pillarboxed when the player's aspect ratio does not match the movie's aspect ratio.
-When letterboxed, black bars will be rendered around the exterior margins of the content.",
-    "",
-    "video_settings",
-    {
-        { "off", "Off" },
-        { "fullscreen", "Fullscreen Only" },
-        { "on", "Always" }
+        { "low", "Low" },
+        { "medium", "Medium" },
+        { "high", "High" },
+        { "best", "Best" },
+        { "high8x8", "High (8x8)" },
+        { "high16x16", "High (16x16)" },
     },
-    "fullscreen"
+    "high"
 },
 {
     "ruffle_max_execution_duration",
     "Content > Max Execution Duration",
     "Max Execution Duration",
-    "Sets the maximum execution time of ActionScript code, in seconds.",
-    "",
+    "Maximum time, in seconds, that a single ActionScript call may run before it is stopped.",
+    "Maximum time, in seconds, that a single ActionScript call may run before it is stopped.",
     "content_settings",
     {
-        { "10" },
-        { "15" },
-        { "30" },
-        { "45" },
-        { "60" },
-        { "120" },
-        { "18446744073709551616", "No Limit" },
+        { "10", "10 seconds" },
+        { "15", "15 seconds" },
+        { "30", "30 seconds" },
+        { "60", "60 seconds" },
+        { "120", "120 seconds" },
+        { "unlimited", "No Limit" },
     },
     "15"
-},
-{
-    "ruffle_msaa",
-    "Video > MSAA",
-    "MSAA",
-    "TODO",
-    "",
-    "video_settings",
-    {
-        { "0", "Off" },
-        { "2", "2x" },
-        { "4", "4x" },
-    },
-},
-{
-    "ruffle_warn_on_unsupported_content",
-    "Content > Warn on Unsupported Content",
-    "Warn on Unsupported Content",
-    "Configures the player to warn if unsupported content is detected (ActionScript 3.0).",
-    "Configures the player to warn if unsupported content is detected (ActionScript 3.0).",
-    "content_settings",
-    {
-        { "true" },
-        { "false" },
-    }
-},
-{
-    "ruffle_file_access_policy",
-    "Content > file:// Protocol Policy",
-    "file:// Protocol Policy",
-    "Decide what to do if the movie requests a file on the local file system with file:// URLs. Make sure you trust this movie!",
-    "",
-    "content_settings",
-    {
-        { "never", "Never" },
-        { "notify", "Notify of Access" },
-        { "always", "Always" },
-    }
 },
 {
     "ruffle_web_browser_access",
     "Content > Web Browser Access",
     "Web Browser Access",
-    "Decide what to do if the movie navigates the browser to a URL.",
-    "",
+    "What to do when the movie tries to open a web page.",
+    "What to do when the movie tries to open a web page.",
     "content_settings",
     {
-        { "off", "Off" },
-        { "off-notify", "Off (but Notify)" },
-        { "external", "External Window" },
-    }
+        { "off", "Ignore" },
+        { "notify", "Show the URL" },
+        { "external", "Open in Web Browser" },
+    },
+    "notify"
 },
 {
     "ruffle_spoofed_url",
     "Content > Spoofed URL",
     "Spoofed URL",
-    "TODO",
-    "",
+    "Pretend the movie was loaded from this URL instead of from disk. Helps with some site-locked content. Restart required.",
+    "Pretend the movie was loaded from this URL instead of from disk. Helps with some site-locked content. Restart required.",
     "content_settings",
     {
-        { "none" },
-        { "http_localhost", "http://localhost" },
-        { "https_localhost", "https://localhost" },
-        { "https_localhost", "https://localhost" },
-        { "file_path", "Movie path (via file://)" },
-    }
-},
-{
-    "ruffle_load_behavior",
-    "Content > Load Behavior",
-    "Load Behavior",
-    "Configures how the root movie should be loaded.",
-    "Configures how the root movie should be loaded.",
-    "content_settings",
-    {
-        { "streaming" },
-        { "blocking" },
-        { "delayed" },
-    }
+        { "none", "Off" },
+        { "http://localhost/", "http://localhost/" },
+        { "https://localhost/", "https://localhost/" },
+    },
+    "none"
 },
 {
     "ruffle_audio_sample_rate",
     "Audio > Sample Rate",
     "Sample Rate",
-    "Configures how the root movie should be loaded.",
-    "Configures how the root movie should be loaded.",
+    "Output sample rate in Hz. Restart required.",
+    "Output sample rate in Hz. Restart required.",
     "audio_settings",
     {
-        { "44100" },
-        { "48000" },
-    }
+        { "44100", "44100 Hz" },
+        { "48000", "48000 Hz" },
+    },
+    "44100"
 }
 )]
 pub struct Ruffle {
-    player: PlayerState,
-    av_info: Option<retro_system_av_info>,
-    vfs: Arc<Cell<Option<retro_vfs_interface>>>,
-    environ_cb: Arc<Cell<retro_environment_t>>,
     config: Config,
-    frontend_preferred_hw_render: retro_hw_context_type,
+    environ_cb: retro_environment_t,
+    session: Option<Session>,
+    /// Kept so `retro_reset` can load the movie again.
+    content_path: Option<PathBuf>,
+    save_directory: Option<PathBuf>,
+    keyboard: KeyboardState,
+    /// Keyboard events arrive through a callback outside of `retro_run`,
+    /// so they're queued here until the next frame.
     queued_events: VecDeque<PlayerEvent>,
-    mouse_state: MouseState,
-    #[cfg(feature = "profiler")]
-    tracy_client: Option<Client>,
+    port_device: u32,
 }
 
 impl Ruffle {
     pub fn new() -> Ruffle {
         Ruffle {
-            player: PlayerState::Uninitialized,
-            av_info: None,
-            vfs: Arc::new(Cell::new(None)),
-            environ_cb: Arc::new(Cell::new(None)),
-            config: Config::new(),
-            frontend_preferred_hw_render: retro_hw_context_type::RETRO_HW_CONTEXT_NONE,
+            config: Config::default(),
+            environ_cb: None,
+            session: None,
+            content_path: None,
+            save_directory: None,
+            keyboard: KeyboardState::default(),
             queued_events: VecDeque::with_capacity(16),
-            mouse_state: MouseState::default(),
-            #[cfg(feature = "profiler")]
-            tracy_client: None,
+            port_device: RETRO_DEVICE_JOYPAD,
         }
     }
 }
@@ -202,4 +137,4 @@ impl Ruffle {
 pub mod config;
 mod core;
 mod input;
-mod state;
+mod session;
