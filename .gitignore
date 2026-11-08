@@ -7,3 +7,7 @@
 
 # Tracy
 *.tracy
+# Core
+/ruffle_libretro.so
+/ruffle_libretro.dll
+/ruffle_libretro.dylib
