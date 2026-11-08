@@ -105,9 +105,7 @@ impl Session {
         };
 
         let renderer = create_renderer(width, height)?;
-        // Every offered sample rate divides evenly by the frame rate.
-        debug_assert_eq!(config.sample_rate % FPS, 0);
-        let (audio_backend, audio) = RetroAudioBackend::new(config.sample_rate, config.sample_rate / FPS);
+        let (audio_backend, audio) = RetroAudioBackend::new(config.sample_rate, FPS);
 
         let player = PlayerBuilder::new()
             .with_movie(movie)

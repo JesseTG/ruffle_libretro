@@ -40,11 +40,12 @@ impl KeyboardState {
             } else {
                 match self.pressed.remove(&physical_key) {
                     // Like Flash Player, a released letter takes its case from the modifiers held now.
-                    Some(LogicalKey::Character(c)) if c.is_alphabetic() => {
+                    // Only ASCII: both cases map to the same key code, unlike other scripts.
+                    Some(LogicalKey::Character(c)) if c.is_ascii_alphabetic() => {
                         LogicalKey::Character(if shift != caps {
-                            c.to_uppercase().next().unwrap_or(c)
+                            c.to_ascii_uppercase()
                         } else {
-                            c.to_lowercase().next().unwrap_or(c)
+                            c.to_ascii_lowercase()
                         })
                     }
                     Some(logical) => logical,

@@ -129,7 +129,6 @@ impl Core for Ruffle {
                 session.gamepad.update(ctx, &mut self.queued_events);
             }
             for event in self.queued_events.drain(..) {
-                log::trace!("{event:?}");
                 player.handle_event(event);
             }
 

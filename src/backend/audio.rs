@@ -15,8 +15,11 @@ pub struct RetroAudioBackend {
 }
 
 impl RetroAudioBackend {
-    /// `samples_per_frame` is how many stereo sample frames to mix on each `retro_run`.
-    pub fn new(sample_rate: u32, samples_per_frame: u32) -> (Self, RetroAudioOutput) {
+    /// Mixes `sample_rate / fps` stereo sample frames on each `retro_run`.
+    /// The rate must divide evenly, or the frontend would receive too few samples.
+    pub fn new(sample_rate: u32, fps: u32) -> (Self, RetroAudioOutput) {
+        assert_eq!(sample_rate % fps, 0, "sample rate {sample_rate} doesn't divide by {fps} fps");
+        let samples_per_frame = sample_rate / fps;
         let mixer = AudioMixer::new(2, sample_rate);
         let playing = Arc::new(AtomicBool::new(true));
         let output = RetroAudioOutput {
