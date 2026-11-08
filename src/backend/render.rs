@@ -6,20 +6,14 @@ use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::target::TextureTarget;
 use ruffle_render_wgpu::utils::capture_image;
 use ruffle_render_wgpu::wgpu;
-use thiserror::Error as ThisError;
-
-#[derive(ThisError, Debug)]
-pub enum RenderError {
-    #[error("No usable graphics device was found: {0}")]
-    NoDevice(String),
-}
+use rust_libretro::anyhow::{self, anyhow};
 
 /// Creates a renderer that draws into an offscreen texture on its own device.
 ///
 /// Rendering doesn't go through the frontend's hardware context: frames are copied
 /// back to system memory and handed over as a normal framebuffer. That works with
 /// every libretro video driver, at the cost of one small GPU-to-CPU copy per frame.
-pub fn create_renderer(width: u32, height: u32) -> Result<WgpuRenderBackend<TextureTarget>, RenderError> {
+pub fn create_renderer(width: u32, height: u32) -> anyhow::Result<WgpuRenderBackend<TextureTarget>> {
     let size = (width, height);
     let power = wgpu::PowerPreference::HighPerformance;
 
@@ -28,7 +22,7 @@ pub fn create_renderer(width: u32, height: u32) -> Result<WgpuRenderBackend<Text
         Err(primary_error) => {
             warn!("No primary graphics backend available ({primary_error}), falling back to OpenGL");
             WgpuRenderBackend::for_offscreen(size, wgpu::Backends::GL, power)
-                .map_err(|gl_error| RenderError::NoDevice(format!("{primary_error}; {gl_error}")))?
+                .map_err(|gl_error| anyhow!("No usable graphics device was found: {primary_error}; {gl_error}"))?
         }
     };
 
@@ -61,7 +55,7 @@ pub fn read_frame(player: &mut Player, frame: &mut Vec<u8>) -> bool {
             .zip(frame.chunks_exact_mut(width * 4))
             .take(height)
         {
-            for (src, dst) in src_row.chunks_exact(4).zip(dst_row.chunks_exact_mut(4)) {
+            for (src, dst) in src_row.as_chunks::<4>().0.iter().zip(dst_row.as_chunks_mut::<4>().0) {
                 // The texture holds premultiplied RGBA, which is exactly the
                 // colour composited over black; XRGB8888 ignores the X byte.
                 let pixel = 0xFF00_0000 | u32::from(src[0]) << 16 | u32::from(src[1]) << 8 | u32::from(src[2]);

@@ -15,16 +15,14 @@ pub struct RetroAudioBackend {
 }
 
 impl RetroAudioBackend {
-    pub fn new(sample_rate: u32) -> (Self, RetroAudioOutput) {
+    /// `samples_per_frame` is how many stereo sample frames to mix on each `retro_run`.
+    pub fn new(sample_rate: u32, samples_per_frame: u32) -> (Self, RetroAudioOutput) {
         let mixer = AudioMixer::new(2, sample_rate);
         let playing = Arc::new(AtomicBool::new(true));
         let output = RetroAudioOutput {
             mixer: mixer.proxy(),
             playing: playing.clone(),
-            sample_rate,
-            fps: 0.0,
-            remainder: 0.0,
-            buffer: Vec::new(),
+            buffer: vec![0; samples_per_frame as usize * 2],
         };
 
         (Self { mixer, playing }, output)
@@ -47,29 +45,13 @@ impl AudioBackend for RetroAudioBackend {
 pub struct RetroAudioOutput {
     mixer: AudioMixerProxy,
     playing: Arc<AtomicBool>,
-    sample_rate: u32,
-    fps: f64,
-    /// Fractional sample frames carried over between video frames, for rates
-    /// that don't divide evenly by the frame rate.
-    remainder: f64,
     buffer: Vec<i16>,
 }
 
 impl RetroAudioOutput {
-    pub fn set_fps(&mut self, fps: f64) {
-        self.fps = fps;
-        self.remainder = 0.0;
-    }
-
-    /// Returns interleaved stereo samples covering one frame at the configured rate.
+    /// Returns interleaved stereo samples covering one frame.
     pub fn mix_frame(&mut self) -> &[i16] {
-        let exact = f64::from(self.sample_rate) / self.fps + self.remainder;
-        let frames = exact.floor();
-        self.remainder = exact - frames;
-
-        self.buffer.clear();
-        self.buffer.resize(frames as usize * 2, 0);
-
+        self.buffer.fill(0);
         if self.playing.load(Ordering::Relaxed) {
             self.mixer.mix(&mut self.buffer);
         }

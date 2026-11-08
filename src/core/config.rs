@@ -31,7 +31,6 @@ pub struct Config {
     pub web_browser_access: SharedWebBrowserAccess,
     pub spoofed_url: Option<String>,
     pub sample_rate: u32,
-    pub upgrade_to_https: bool,
 }
 
 impl Default for Config {
@@ -42,7 +41,6 @@ impl Default for Config {
             web_browser_access: SharedWebBrowserAccess(Arc::new(Mutex::new(WebBrowserAccess::Notify))),
             spoofed_url: None,
             sample_rate: 44100,
-            upgrade_to_https: true,
         }
     }
 }

@@ -27,7 +27,7 @@ use crate::core::input::{gamepad_button_mapping, GamepadState};
 use crate::util::mouse::MouseState;
 
 /// The core runs at a fixed rate; the player advances by real Flash frames internally.
-pub const FPS: f64 = 60.0;
+pub const FPS: u32 = 60;
 
 /// Everything that exists while a movie is loaded.
 ///
@@ -89,7 +89,7 @@ impl Session {
             None,
             RetroFutureSpawner(executor.spawner()),
             None,
-            config.upgrade_to_https,
+            true, // upgrade_to_https
             HashSet::new(),
             SocketMode::Deny,
             Rc::new(content),
@@ -105,8 +105,9 @@ impl Session {
         };
 
         let renderer = create_renderer(width, height)?;
-        let (audio_backend, mut audio) = RetroAudioBackend::new(config.sample_rate);
-        audio.set_fps(FPS);
+        // Every offered sample rate divides evenly by the frame rate.
+        debug_assert_eq!(config.sample_rate % FPS, 0);
+        let (audio_backend, audio) = RetroAudioBackend::new(config.sample_rate, config.sample_rate / FPS);
 
         let player = PlayerBuilder::new()
             .with_movie(movie)

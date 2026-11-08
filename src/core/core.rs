@@ -5,13 +5,12 @@ use std::time::Duration;
 use log::{debug, info, warn, Level, LevelFilter};
 use ruffle_core::FloatDuration;
 use ruffle_render::quality::StageQuality;
-use rust_libretro::anyhow::{self, Context};
+use rust_libretro::anyhow::{self, bail, Context};
 use rust_libretro::contexts::*;
 use rust_libretro::core::Core;
 use rust_libretro::environment;
 use rust_libretro::sys::*;
 use rust_libretro::types::{PixelFormat, SystemInfo};
-use thiserror::Error as ThisError;
 
 use crate::backend::render::read_frame;
 use crate::built_info;
@@ -19,15 +18,6 @@ use crate::core::config::WebBrowserAccess;
 use crate::core::session::{Session, FPS};
 use crate::core::{input, Ruffle};
 use crate::util::message;
-
-#[derive(ThisError, Debug)]
-pub enum CoreError {
-    #[error("No game was provided")]
-    NoGameProvided,
-
-    #[error("The frontend didn't provide a path to the content")]
-    NoPath,
-}
 
 impl Core for Ruffle {
     fn get_info(&self) -> SystemInfo {
@@ -57,7 +47,7 @@ impl Core for Ruffle {
                 aspect_ratio: width as f32 / height as f32,
             },
             timing: retro_system_timing {
-                fps: FPS,
+                fps: f64::from(FPS),
                 sample_rate: f64::from(self.config.sample_rate),
             },
         }
@@ -139,10 +129,11 @@ impl Core for Ruffle {
                 session.gamepad.update(ctx, &mut self.queued_events);
             }
             for event in self.queued_events.drain(..) {
+                log::trace!("{event:?}");
                 player.handle_event(event);
             }
 
-            player.tick(FloatDuration::from_millis(1000.0 / FPS));
+            player.tick(FloatDuration::from_millis(1000.0 / f64::from(FPS)));
 
             if player.needs_render() {
                 player.render();
@@ -169,9 +160,11 @@ impl Core for Ruffle {
     fn on_load_game(&mut self, game: Option<retro_game_info>, ctx: &mut LoadGameContext) -> anyhow::Result<()> {
         ctx.set_pixel_format(PixelFormat::XRGB8888)?;
 
-        let game = game.ok_or(CoreError::NoGameProvided)?;
+        let Some(game) = game else {
+            bail!("No game was provided");
+        };
         if game.path.is_null() {
-            Err(CoreError::NoPath)?;
+            bail!("The frontend didn't provide a path to the content");
         }
         let path = unsafe { CStr::from_ptr(game.path) }
             .to_str()
@@ -179,7 +172,7 @@ impl Core for Ruffle {
         let path = PathBuf::from(path);
 
         let ctx = GenericContext::from(ctx);
-        if let Err(e) = ctx.set_input_descriptors(input::INPUT_DESCRIPTORS) {
+        if let Err(e) = ctx.set_input_descriptors(&input::input_descriptors()) {
             warn!("RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS failed: {e}");
         }
         if let Err(e) = ctx.enable_keyboard_callback() {

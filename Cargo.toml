@@ -21,7 +21,6 @@ ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", tag = "v0.7.
 ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle", tag = "v0.7.1" }
 rust-libretro = { git = "https://github.com/max-m/rust-libretro", rev = "ac04a98", features = ["unstable-env-commands", "strict-bitflags", "log"] }
 rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", rev = "ac04a98" }
-thiserror = "2.0"
 tokio = { version = "1.52", features = ["rt-multi-thread"] }
 # Forward Ruffle's `tracing` events to `log`, which rust-libretro sends to the frontend.
 tracing = { version = "0.1", features = ["log"] }

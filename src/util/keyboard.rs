@@ -7,8 +7,8 @@ use rust_libretro::sys::{retro_key, retro_mod};
 /// Turns libretro keyboard callbacks into Ruffle events.
 #[derive(Default)]
 pub struct KeyboardState {
-    /// The logical key reported when each physical key went down,
-    /// so the matching key-up reports the same one even if modifiers changed.
+    /// The logical key reported when each physical key went down. Frontends rarely
+    /// send a character on release, so this keeps non-US layouts consistent.
     pressed: HashMap<PhysicalKey, LogicalKey>,
 }
 
@@ -23,12 +23,12 @@ impl KeyboardState {
     ) {
         let character = char::from_u32(character).filter(|c| *c != '\0');
         let shift = has(modifiers, retro_mod::RETROKMOD_SHIFT);
+        let caps = has(modifiers, retro_mod::RETROKMOD_CAPSLOCK);
         let ctrl = has(modifiers, retro_mod::RETROKMOD_CTRL) || has(modifiers, retro_mod::RETROKMOD_META);
 
         if keycode != retro_key::RETROK_UNKNOWN {
             let (physical_key, key_location) = physical_key(keycode);
             let logical_key = if down {
-                let caps = has(modifiers, retro_mod::RETROKMOD_CAPSLOCK);
                 let logical = match character {
                     Some(c) if !c.is_control() => LogicalKey::Character(c),
                     _ => logical_key(keycode, shift, caps),
@@ -38,9 +38,18 @@ impl KeyboardState {
                 }
                 logical
             } else {
-                self.pressed
-                    .remove(&physical_key)
-                    .unwrap_or_else(|| logical_key(keycode, false, false))
+                match self.pressed.remove(&physical_key) {
+                    // Like Flash Player, a released letter takes its case from the modifiers held now.
+                    Some(LogicalKey::Character(c)) if c.is_alphabetic() => {
+                        LogicalKey::Character(if shift != caps {
+                            c.to_uppercase().next().unwrap_or(c)
+                        } else {
+                            c.to_lowercase().next().unwrap_or(c)
+                        })
+                    }
+                    Some(logical) => logical,
+                    None => logical_key(keycode, shift, caps),
+                }
             };
 
             let key = KeyDescriptor {
