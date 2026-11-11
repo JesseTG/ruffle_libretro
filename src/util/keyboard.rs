@@ -13,9 +13,12 @@ pub struct KeyboardState {
 }
 
 impl KeyboardState {
+    /// `from_retropad` marks a key the frontend also reports as a RetroPad button,
+    /// which presses its Flash key already; only its text input is sent here.
     pub fn handle(
         &mut self,
         down: bool,
+        from_retropad: bool,
         keycode: retro_key,
         character: u32,
         modifiers: retro_mod,
@@ -33,12 +36,17 @@ impl KeyboardState {
                     Some(c) if !c.is_control() => LogicalKey::Character(c),
                     _ => logical_key(keycode, shift, caps),
                 };
-                if physical_key != PhysicalKey::Unknown {
+                if physical_key != PhysicalKey::Unknown && !from_retropad {
                     self.pressed.insert(physical_key, logical);
                 }
                 logical
             } else {
-                match self.pressed.remove(&physical_key) {
+                let released = self.pressed.remove(&physical_key);
+                // Still release keys pressed before the RetroPad was plugged in.
+                if from_retropad && released.is_none() {
+                    return;
+                }
+                match released {
                     // Like Flash Player, a released letter takes its case from the modifiers held now.
                     // Only ASCII: both cases map to the same key code, unlike other scripts.
                     Some(LogicalKey::Character(c)) if c.is_ascii_alphabetic() => {
@@ -58,11 +66,11 @@ impl KeyboardState {
                 logical_key,
                 key_location,
             };
-            events.extend([if down {
-                PlayerEvent::KeyDown { key }
-            } else {
-                PlayerEvent::KeyUp { key }
-            }]);
+            if !down {
+                events.extend([PlayerEvent::KeyUp { key }]);
+            } else if !from_retropad {
+                events.extend([PlayerEvent::KeyDown { key }]);
+            }
 
             if down {
                 if let Some(code) = text_control(keycode, shift, ctrl) {

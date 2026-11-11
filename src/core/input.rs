@@ -11,7 +11,7 @@ use rust_libretro_sys::*;
 ///
 /// The keys match RetroArch's default keyboard binds for the same buttons,
 /// so a keyboard press that RetroArch also reports as a RetroPad press
-/// sends the same key twice instead of two different keys.
+/// means the same key either way; see [`is_retropad_key`].
 const RETROPAD_BINDINGS: [(u32, GamepadButton, KeyCode, &CStr); 14] = [
     (RETRO_DEVICE_ID_JOYPAD_UP, GamepadButton::DPadUp, KeyCode::UP, c"Up Arrow"),
     (RETRO_DEVICE_ID_JOYPAD_DOWN, GamepadButton::DPadDown, KeyCode::DOWN, c"Down Arrow"),
@@ -72,6 +72,29 @@ pub const CONTROLLER_INFO: &[retro_controller_info] = &[
         num_types: 0,
     },
 ];
+
+/// Whether RetroArch binds this key to a [`RETROPAD_BINDINGS`] button by default.
+/// Such a press also arrives as that button, which already sends its Flash key.
+pub fn is_retropad_key(keycode: retro_key) -> bool {
+    use retro_key as k;
+    matches!(
+        keycode,
+        k::RETROK_UP
+            | k::RETROK_DOWN
+            | k::RETROK_LEFT
+            | k::RETROK_RIGHT
+            | k::RETROK_z
+            | k::RETROK_x
+            | k::RETROK_a
+            | k::RETROK_s
+            | k::RETROK_q
+            | k::RETROK_w
+            | k::RETROK_e
+            | k::RETROK_r
+            | k::RETROK_RSHIFT
+            | k::RETROK_RETURN
+    )
+}
 
 pub fn gamepad_button_mapping() -> HashMap<GamepadButton, KeyCode> {
     RETROPAD_BINDINGS

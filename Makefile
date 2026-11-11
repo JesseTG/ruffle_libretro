@@ -34,7 +34,18 @@ endif
 
 CARGO ?= cargo
 CARGO_TARGET_DIR ?= target
-BUILT := $(CARGO_TARGET_DIR)/$(PROFILE_DIR)/$(LIB_PREFIX)$(CORE_NAME).$(EXT)
+
+# Set TARGET_TRIPLE to cross-compile, rather than passing --target in CARGO_FLAGS,
+# since Cargo then builds into a directory named after the triple.
+TARGET_TRIPLE ?= $(CARGO_BUILD_TARGET)
+ifneq ($(TARGET_TRIPLE),)
+	CARGO_FLAGS += --target $(TARGET_TRIPLE)
+	OUT_DIR := $(CARGO_TARGET_DIR)/$(TARGET_TRIPLE)/$(PROFILE_DIR)
+else
+	OUT_DIR := $(CARGO_TARGET_DIR)/$(PROFILE_DIR)
+endif
+
+BUILT := $(OUT_DIR)/$(LIB_PREFIX)$(CORE_NAME).$(EXT)
 TARGET := $(CORE_NAME).$(EXT)
 
 .PHONY: all clean $(BUILT)

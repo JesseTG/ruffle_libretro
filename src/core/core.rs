@@ -17,6 +17,7 @@ use crate::built_info;
 use crate::core::config::WebBrowserAccess;
 use crate::core::session::{Session, FPS};
 use crate::core::{input, Ruffle};
+use crate::util::keyboard::KeyboardState;
 use crate::util::message;
 
 impl Core for Ruffle {
@@ -97,13 +98,18 @@ impl Core for Ruffle {
             return;
         };
 
-        if let Some(session) = self.session.take() {
+        // Flush first so the new session loads the latest saves.
+        if let Some(session) = &self.session {
             session.flush();
         }
-        self.queued_events.clear();
 
+        // If the movie can't be loaded again, keep the current one running.
         match Session::new(&path, &self.config, self.environ_cb, self.save_directory.clone()) {
-            Ok(session) => self.session = Some(session),
+            Ok(session) => {
+                self.session = Some(session);
+                self.queued_events.clear();
+                self.keyboard = KeyboardState::default();
+            }
             Err(e) => message::show(self.environ_cb, &format!("Ruffle: {e:#}"), 5000, Level::Error),
         }
     }
@@ -134,12 +140,12 @@ impl Core for Ruffle {
 
             player.tick(FloatDuration::from_millis(1000.0 / f64::from(FPS)));
 
-            if player.needs_render() {
+            // Frames are read back a frame late, so read even when nothing new was rendered.
+            let rendered = player.needs_render();
+            if rendered {
                 player.render();
-                read_frame(&mut player, &mut session.frame)
-            } else {
-                false
             }
+            read_frame(&mut player, &mut session.frame, rendered)
         };
 
         if rendered || !session.has_frame || !ctx.can_dupe() {
@@ -205,6 +211,7 @@ impl Core for Ruffle {
         }
         self.content_path = None;
         self.queued_events.clear();
+        self.keyboard = KeyboardState::default();
     }
 
     fn on_options_changed(&mut self, ctx: &mut OptionsChangedContext) {
@@ -261,7 +268,12 @@ impl Core for Ruffle {
     }
 
     fn on_keyboard_event(&mut self, down: bool, keycode: retro_key, character: u32, key_modifiers: retro_mod) {
+        // Nothing drains the queue until content is running.
+        if self.session.is_none() {
+            return;
+        }
+        let from_retropad = self.port_device == RETRO_DEVICE_JOYPAD && input::is_retropad_key(keycode);
         self.keyboard
-            .handle(down, keycode, character, key_modifiers, &mut self.queued_events);
+            .handle(down, from_retropad, keycode, character, key_modifiers, &mut self.queued_events);
     }
 }
