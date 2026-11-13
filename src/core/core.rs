@@ -1,8 +1,10 @@
 use std::ffi::{CStr, CString};
+use std::panic;
 use std::path::PathBuf;
+use std::sync::Once;
 use std::time::Duration;
 
-use log::{debug, info, warn, Level, LevelFilter};
+use log::{debug, error, info, warn, Level, LevelFilter};
 use ruffle_core::FloatDuration;
 use ruffle_render::quality::StageQuality;
 use rust_libretro::anyhow::{self, bail, Context};
@@ -76,6 +78,17 @@ impl Core for Ruffle {
         if std::env::var_os("RUST_LOG").is_none() {
             log::set_max_level(LevelFilter::Info);
         }
+
+        // Send panics to the frontend's log too, since stderr often isn't visible.
+        // retro_init runs again whenever the core is reloaded, so only install this once.
+        static PANIC_HOOK: Once = Once::new();
+        PANIC_HOOK.call_once(|| {
+            let default_hook = panic::take_hook();
+            panic::set_hook(Box::new(move |info| {
+                error!("{info}");
+                default_hook(info);
+            }));
+        });
     }
 
     fn on_set_controller_port_device(&mut self, port: u32, device: u32, _ctx: &mut GenericContext) {
