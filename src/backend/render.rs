@@ -1,149 +1,218 @@
-use std::ffi::CStr;
+use std::any::Any;
+use std::sync::{Arc, Mutex};
 
-use rust_libretro::contexts::LoadGameContext;
-use rust_libretro::{anyhow, environment, retro_hw_context_destroyed_callback, retro_hw_context_reset_callback};
-use rust_libretro_sys::retro_hw_context_type::*;
-use rust_libretro_sys::{
-    retro_environment_t, retro_hw_context_type, retro_hw_render_callback,
-    retro_hw_render_context_negotiation_interface_type, retro_hw_render_interface_type, retro_proc_address_t,
-};
-use thiserror::Error as ThisError;
+use log::{info, warn};
+use ruffle_core::Player;
+use ruffle_render_wgpu::backend::{create_wgpu_instance, request_adapter_and_device, WgpuRenderBackend};
+use ruffle_render_wgpu::descriptors::Descriptors;
+use ruffle_render_wgpu::target::{RenderTarget, RenderTargetFrame};
+use ruffle_render_wgpu::utils::{capture_image, BufferDimensions};
+use ruffle_render_wgpu::wgpu;
+use rust_libretro::anyhow::{self, anyhow};
 
-pub mod opengl;
-pub mod vulkan;
-mod wgpu;
+/// Creates a renderer that draws into an offscreen texture on its own device.
+///
+/// Rendering doesn't go through the frontend's hardware context: frames are copied
+/// back to system memory and handed over as a normal framebuffer. That works with
+/// every libretro video driver, at the cost of one small GPU-to-CPU copy per frame.
+pub fn create_renderer(width: u32, height: u32) -> anyhow::Result<WgpuRenderBackend<ReadbackTarget>> {
+    let size = (width, height);
+    let power = wgpu::PowerPreference::HighPerformance;
 
-#[derive(ThisError, Debug)]
-pub enum HardwareRenderError {
-    #[error("Couldn't use the provided environment callback")]
-    InvalidEnvironmentCallback,
+    let backend = match create_backend(size, wgpu::Backends::PRIMARY, power) {
+        Ok(backend) => backend,
+        Err(primary_error) => {
+            warn!("No primary graphics backend available ({primary_error}), falling back to OpenGL");
+            create_backend(size, wgpu::Backends::GL, power)
+                .map_err(|gl_error| anyhow!("No usable graphics device was found: {primary_error}; {gl_error}"))?
+        }
+    };
 
-    #[error("Frontend prefers unrecognized hardware context type {0}")]
-    UnknownContextType(u32),
+    let info = backend.descriptors().adapter.get_info();
+    info!("Rendering with {} on {:?} ({})", info.name, info.backend, info.driver);
 
-    #[error("Couldn't set the renderer to type {0:?} (does the frontend support it?)")]
-    FailedToSetRenderer(retro_hw_context_type),
-
-    #[error("Couldn't set the context negotiation to type {0:?} (does the frontend support it?)")]
-    FailedToSetNegotiationInterface(retro_hw_render_context_negotiation_interface_type),
-
-    #[error("Video driver switching is disabled or unavailable, you get no choice")]
-    DriverSwitchingNotAvailable,
-
-    #[error("Rendering with {0:?} is not currently supported")]
-    UnsupportedHardwareContext(retro_hw_context_type),
-
-    #[error("Expected a render interface of type {0:?}, got one of type {1:?}")]
-    WrongRenderInterfaceType(retro_hw_render_interface_type, retro_hw_render_interface_type),
-
-    #[error("Failed to get a render interface of type {0:?}")]
-    FailedToGetRenderInterface(retro_hw_render_interface_type),
-
-    #[error("Expected a render interface of type {0:?}, got a null pointer")]
-    NullRenderInterface(retro_hw_render_interface_type),
-
-    #[error("Render interface function {0} was null")]
-    NullInterfaceFunction(&'static str),
+    Ok(backend)
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct HardwareRenderCallback {
-    // RetroArch maintains its own instance, so we don't need to keep this one around
-    // unless we want to use the functions it provides.
-    callback: retro_hw_render_callback,
+/// Like `WgpuRenderBackend::for_offscreen`, but rendering into a [`ReadbackTarget`].
+fn create_backend(
+    size: (u32, u32),
+    backends: wgpu::Backends,
+    power: wgpu::PowerPreference,
+) -> Result<WgpuRenderBackend<ReadbackTarget>, Box<dyn std::error::Error>> {
+    let instance = create_wgpu_instance(backends, wgpu::BackendOptions::default(), None);
+    let (adapter, device, queue) =
+        futures::executor::block_on(request_adapter_and_device(backends, &instance, None, power))?;
+    let target = ReadbackTarget::new(&device, size);
+    WgpuRenderBackend::new(Arc::new(Descriptors::new(instance, adapter, device, queue)), target)
 }
 
-impl HardwareRenderCallback {
-    pub fn set(preferred_renderer: retro_hw_context_type, environ_cb: retro_environment_t) -> anyhow::Result<Self> {
-        let callback = retro_hw_render_callback {
-            context_type: match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGL => RETRO_HW_CONTEXT_OPENGLES2,
-                RETRO_HW_CONTEXT_OPENGLES_VERSION | RETRO_HW_CONTEXT_OPENGL_CORE => RETRO_HW_CONTEXT_OPENGLES3,
-                // wgpu supports OpenGL ES, but *not* plain OpenGL.
-                _ => preferred_renderer,
-            },
-            bottom_left_origin: true,
-            version_major: match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGLES3 => 3,
-                RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
-                RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
-                RETRO_HW_CONTEXT_VULKAN => ash::vk::API_VERSION_1_3,
-                _ => 0, // Other video contexts don't need a major version number
-            },
-            version_minor: match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGLES3 => 1,
-                _ => 0, // Other video contexts don't need a minor version number
-            },
-            cache_context: true,
-            debug_context: true,
+/// An offscreen render target that copies each frame into one of two buffers,
+/// so the previous frame can be read while the GPU is still drawing the next one.
+#[derive(Debug)]
+pub struct ReadbackTarget {
+    size: wgpu::Extent3d,
+    texture: wgpu::Texture,
+    dimensions: BufferDimensions,
+    buffers: [wgpu::Buffer; 2],
+    state: Mutex<ReadbackState>,
+}
 
-            depth: false,   // obsolete
-            stencil: false, // obsolete
+#[derive(Debug, Default)]
+struct ReadbackState {
+    /// The buffer the next frame is copied into.
+    next: usize,
+    /// The submission that copied a frame into each buffer, until that frame is read.
+    pending: [Option<wgpu::SubmissionIndex>; 2],
+}
 
-            context_reset: Some(retro_hw_context_reset_callback),
-            context_destroy: Some(retro_hw_context_destroyed_callback),
+#[derive(Debug)]
+pub struct ReadbackFrame(wgpu::TextureView);
 
-            // Set by the frontend
-            get_current_framebuffer: None,
-            get_proc_address: None,
-        };
-
-        Ok(Self {
-            callback: unsafe { environment::set_hw_render(environ_cb, callback)? },
-        })
+impl RenderTargetFrame for ReadbackFrame {
+    fn into_view(self) -> wgpu::TextureView {
+        self.0
     }
 
-    pub fn get_proc_address(&self, sym: &CStr) -> retro_proc_address_t {
-        if let Some(get_proc_address) = self.callback.get_proc_address {
-            unsafe { get_proc_address(sym.as_ptr()) }
-        } else {
-            None
+    fn view(&self) -> &wgpu::TextureView {
+        &self.0
+    }
+}
+
+impl ReadbackTarget {
+    const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+    fn new(device: &wgpu::Device, (width, height): (u32, u32)) -> Self {
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Readback target texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::FORMAT,
+            view_formats: &[Self::FORMAT],
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+        });
+        let dimensions = BufferDimensions::new(width as usize, height as usize, Self::FORMAT);
+        let buffers = [(); 2].map(|_| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Readback target buffer"),
+                size: dimensions.size(),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })
+        });
+
+        Self {
+            size,
+            texture,
+            dimensions,
+            buffers,
+            state: Mutex::default(),
         }
     }
 
-    pub fn context_type(&self) -> retro_hw_context_type {
-        self.callback.context_type
+    /// Passes the oldest unread frame to `with_rgba`, skipping one submitted since the
+    /// last call if `rendered` is set, since the GPU is likely still drawing it.
+    /// Returns `None` if there's no such frame.
+    fn read<R>(&self, device: &wgpu::Device, rendered: bool, with_rgba: impl FnOnce(&[u8], u32) -> R) -> Option<R> {
+        let mut state = self.state.lock().expect("readback lock poisoned");
+        let index = if rendered { state.next } else { 1 - state.next };
+        let submission = state.pending[index].take()?;
+        Some(capture_image(device, &self.buffers[index], &self.dimensions, Some(submission), with_rgba))
     }
 }
 
-pub fn enable_hw_render(ctx: &mut LoadGameContext, preferred_renderer: retro_hw_context_type) -> anyhow::Result<()> {
-    unsafe {
-        ctx.enable_hw_render(
-            match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGL => RETRO_HW_CONTEXT_OPENGLES2,
-                RETRO_HW_CONTEXT_OPENGLES_VERSION | RETRO_HW_CONTEXT_OPENGL_CORE => RETRO_HW_CONTEXT_OPENGLES3,
-                // wgpu supports OpenGL ES, but *not* plain OpenGL.
-                _ => preferred_renderer,
+impl RenderTarget for ReadbackTarget {
+    type Frame = ReadbackFrame;
+
+    fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+        *self = Self::new(device, (width, height));
+    }
+
+    fn format(&self) -> wgpu::TextureFormat {
+        Self::FORMAT
+    }
+
+    fn width(&self) -> u32 {
+        self.size.width
+    }
+
+    fn height(&self) -> u32 {
+        self.size.height
+    }
+
+    fn get_next_texture(&mut self) -> Option<Self::Frame> {
+        Some(ReadbackFrame(self.texture.create_view(&Default::default())))
+    }
+
+    fn submit<I: IntoIterator<Item = wgpu::CommandBuffer>>(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        command_buffers: I,
+        _frame: Self::Frame,
+    ) -> wgpu::SubmissionIndex {
+        let mut state = self.state.lock().expect("readback lock poisoned");
+        let index = state.next;
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Readback transfer encoder"),
+        });
+        encoder.copy_texture_to_buffer(
+            self.texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &self.buffers[index],
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.dimensions.padded_bytes_per_row),
+                    rows_per_image: None,
+                },
             },
-            true,
-            match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGLES3 => 3,
-                RETRO_HW_CONTEXT_OPENGLES2 | RETRO_HW_CONTEXT_OPENGL => 2,
-                RETRO_HW_CONTEXT_DIRECT3D => 11, // Direct3D 12 is buggy in RetroArch
-                RETRO_HW_CONTEXT_VULKAN => ash::vk::API_VERSION_1_3,
-                _ => 0, // Other video contexts don't need a major version number
-            },
-            match preferred_renderer {
-                RETRO_HW_CONTEXT_OPENGLES3 => 1,
-                _ => 0, // Other video contexts don't need a minor version number
-            },
-            true,
-        )?;
+            self.size,
+        );
+
+        let submission = queue.submit(command_buffers.into_iter().chain([encoder.finish()]));
+        state.pending[index] = Some(submission.clone());
+        state.next = 1 - index;
+        submission
+    }
+}
+
+/// Copies the oldest unread frame into `frame` as XRGB8888 pixels, resizing it to
+/// `width * height` if needed. Set `rendered` if the player rendered since the last call.
+/// Returns `false` if there was nothing to copy.
+pub fn read_frame(player: &mut Player, frame: &mut Vec<u8>, rendered: bool) -> bool {
+    profiling::scope!("read_frame");
+    let Some(renderer) = <dyn Any>::downcast_ref::<WgpuRenderBackend<ReadbackTarget>>(player.renderer_mut()) else {
+        return false;
     };
 
-    Ok(())
-}
+    let target = renderer.target();
+    let (width, height) = (target.size.width as usize, target.size.height as usize);
+    frame.resize(width * height * 4, 0);
 
-pub fn enable_hw_render_negotiation_interface(
-    ctx: &mut LoadGameContext,
-    preferred_renderer: retro_hw_context_type,
-) -> anyhow::Result<()> {
-    if preferred_renderer == RETRO_HW_CONTEXT_VULKAN {
-        vulkan::negotiation::enable(ctx)?;
-    }
-
-    // Enable the Vulkan context negotiation interface if using Vulkan,
-    // otherwise do nothing.
-
-    Ok(())
+    target
+        .read(renderer.device(), rendered, |rgba, padded_bytes_per_row| {
+            for (src_row, dst_row) in rgba
+                .chunks_exact(padded_bytes_per_row as usize)
+                .zip(frame.chunks_exact_mut(width * 4))
+                .take(height)
+            {
+                for (src, dst) in src_row.as_chunks::<4>().0.iter().zip(dst_row.as_chunks_mut::<4>().0) {
+                    // The texture holds premultiplied RGBA, which is exactly the
+                    // colour composited over black; XRGB8888 ignores the X byte.
+                    let pixel = 0xFF00_0000 | u32::from(src[0]) << 16 | u32::from(src[1]) << 8 | u32::from(src[2]);
+                    dst.copy_from_slice(&pixel.to_ne_bytes());
+                }
+            }
+        })
+        .is_some()
 }

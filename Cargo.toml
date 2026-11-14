@@ -1,60 +1,41 @@
 [package]
 name = "ruffle_libretro"
-version = "0.0.0"
+version = "0.7.1"
 edition = "2021"
+rust-version = "1.88"
 build = "build.rs"
 
 [lib]
-crate_type = ["cdylib"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+crate-type = ["cdylib"]
 
 [dependencies]
-arboard = "3.2.0"
-ash = "0.37.1"
-bytemuck = { version = "1.13.1", features = ["derive"] }
-euclid = "0.22.7"
-futures = "0.3.28"
-gc-arena = { git = "https://github.com/kyren/gc-arena", rev = "fcc8764362d25f8724912dd7f09f2405779ec053" }
-glow = "0.11.2"
-isahc = "1.7.2"
-libc = "0.2.139"
-log = "0.4.17"
-profiling = { version = "1.0", features = ["tracy-client"], optional = true }
-ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82", features = ["audio", "lzma", "mp3", "nellymoser"] }
-ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82", features = ["tessellator"] }
-ruffle_video = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82" }
-ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82" }
-ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", rev = "7830a82", features = ["render_debug_labels"] }
-rust-libretro = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan", "unstable-env-commands", "strict-bitflags", "log"] }
-rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", branch = "dev", features = ["vulkan"] }
-tap = "1.0.1"
-thiserror = "1.0.38"
-tracy-client = "0.15.1"
-tracy-client-sys = {version = "0.20.0", features = ["manual-lifetime", "delayed-init"]}
-url = "2.3.1"
-webbrowser = "0.8.2"
-wgpu = { version = "0.16", features = [ "angle", "expose-ids" ] }
-wgpu-core = { version = "0.16" }
-wgpu-hal = { version = "0.16", features = ["gles", "vulkan"] }
-wgpu-types = { version = "0.16" }
+arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }
+futures = "0.3.32"
+libc = "0.2"
+log = "0.4"
+# Profiling macros compile to nothing unless the `profiler` feature picks a backend.
+profiling = { version = "1.0", default-features = false }
+ruffle_core = { git = "https://github.com/ruffle-rs/ruffle", tag = "v0.7.1", features = ["audio", "lzma", "mp3", "aac", "nellymoser", "default_compatibility_rules", "default_font"] }
+ruffle_frontend_utils = { git = "https://github.com/ruffle-rs/ruffle", tag = "v0.7.1", features = ["fs", "navigator"] }
+ruffle_render = { git = "https://github.com/ruffle-rs/ruffle", tag = "v0.7.1" }
+ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle", tag = "v0.7.1" }
+ruffle_video_software = { git = "https://github.com/ruffle-rs/ruffle", tag = "v0.7.1" }
+rust-libretro = { git = "https://github.com/max-m/rust-libretro", rev = "ac04a98", features = ["unstable-env-commands", "strict-bitflags", "log"] }
+rust-libretro-sys = { git = "https://github.com/max-m/rust-libretro", rev = "ac04a98" }
+tokio = { version = "1.52", features = ["rt-multi-thread"] }
+# Forward Ruffle's `tracing` events to `log`, which rust-libretro sends to the frontend.
+tracing = { version = "0.1", features = ["log"] }
+url = "2.5"
+webbrowser = "1.0"
 
 [features]
 default = []
-profiler = ["profiling", "profiling/profile-with-tracy", "ruffle_render_wgpu/profile-with-tracy", "tracy-client/fibers"]
+profiler = ["profiling/profile-with-tracy", "ruffle_render_wgpu/profile-with-tracy"]
 
 [profile.dev]
-incremental = true
 opt-level = 1
-debug-assertions = true
-overflow-checks = true
-debug = true
 
 [profile.release]
-opt-level = 3
-debug-assertions = false
-overflow-checks = false
-debug = false
 lto = true
 
 [profile.dev.package.h263-rs]
@@ -73,4 +54,4 @@ opt-level = 3
 opt-level = 3
 
 [build-dependencies]
-built = "0.5"
+built = "0.8"

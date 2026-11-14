@@ -1,51 +1,95 @@
-use euclid::{vec2, Point2D, Vector2D};
 use ruffle_core::events::{MouseButton, MouseWheelDelta};
+use ruffle_core::PlayerEvent;
 use rust_libretro::contexts::RunContext;
-use rust_libretro_sys::*;
+use rust_libretro::sys::*;
 
-use super::math::Pixels;
+const BUTTONS: [MouseButton; 3] = [MouseButton::Left, MouseButton::Right, MouseButton::Middle];
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+/// Tracks the cursor across frames and turns changes into Ruffle mouse events.
+///
+/// The position comes from the absolute pointer device, so the cursor follows the
+/// host's mouse (or touch) without needing it grabbed. When the pointer doesn't move,
+/// relative mouse motion is used instead, which covers a grabbed mouse.
 pub struct MouseState {
-    pub position: Point2D<i16, Pixels>,
-    pub delta: Vector2D<i16, Pixels>,
-    pub button: Option<MouseButton>,
-    pub wheel: Option<MouseWheelDelta>,
+    x: f64,
+    y: f64,
+    last_pointer: Option<(i16, i16)>,
+    buttons: [bool; 3],
+}
+
+impl Default for MouseState {
+    fn default() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            last_pointer: None,
+            buttons: [false; 3],
+        }
+    }
 }
 
 impl MouseState {
-    pub fn from_context(&self, geometry: &retro_game_geometry, ctx: &RunContext) -> Self {
-        let mouse_dx = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
-        let mouse_dy = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
-        let mouse_left_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT) != 0;
-        let mouse_right_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
-        let mouse_middle_button = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE) != 0;
-        let mouse_wheel_down = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN) != 0;
-        let mouse_wheel_up = ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP) != 0;
+    pub fn update(&mut self, ctx: &RunContext, width: u32, height: u32, events: &mut impl Extend<PlayerEvent>) {
+        let (width, height) = (f64::from(width), f64::from(height));
+        let mouse = |id| ctx.get_input_state(0, RETRO_DEVICE_MOUSE, 0, id);
+        let pointer = |id| ctx.get_input_state(0, RETRO_DEVICE_POINTER, 0, id);
 
-        let screen_size = Point2D::<i16, Pixels>::new(geometry.base_width as i16, geometry.base_height as i16);
-        let delta = vec2(mouse_dx, mouse_dy);
-        let new_position = (self.position + delta).clamp(Point2D::zero(), screen_size);
+        let pointer_pos = (pointer(RETRO_DEVICE_ID_POINTER_X), pointer(RETRO_DEVICE_ID_POINTER_Y));
+        let (old_x, old_y) = (self.x, self.y);
 
-        Self {
-            delta,
-            position: new_position,
-            button: if mouse_left_button {
-                Some(MouseButton::Left)
-            } else if mouse_right_button {
-                Some(MouseButton::Right)
-            } else if mouse_middle_button {
-                Some(MouseButton::Middle)
-            } else {
-                None
-            },
-            wheel: if mouse_wheel_up {
-                Some(MouseWheelDelta::Lines(1.0))
-            } else if mouse_wheel_down {
-                Some(MouseWheelDelta::Lines(-1.0))
-            } else {
-                None
-            },
+        if self.last_pointer != Some(pointer_pos) {
+            // Pointer coordinates span [-0x7fff, 0x7fff] across the content's viewport.
+            // -0x8000 means the pointer is outside of it.
+            if pointer_pos.0 != i16::MIN && pointer_pos.1 != i16::MIN {
+                self.x = (f64::from(pointer_pos.0) + 32767.0) / 65534.0 * width;
+                self.y = (f64::from(pointer_pos.1) + 32767.0) / 65534.0 * height;
+            }
+            self.last_pointer = Some(pointer_pos);
+        } else {
+            self.x += f64::from(mouse(RETRO_DEVICE_ID_MOUSE_X));
+            self.y += f64::from(mouse(RETRO_DEVICE_ID_MOUSE_Y));
+        }
+
+        self.x = self.x.clamp(0.0, width);
+        self.y = self.y.clamp(0.0, height);
+        let (x, y) = (self.x, self.y);
+
+        if x != old_x || y != old_y {
+            events.extend([PlayerEvent::MouseMove { x, y }]);
+        }
+
+        let buttons = [
+            mouse(RETRO_DEVICE_ID_MOUSE_LEFT) != 0 || pointer(RETRO_DEVICE_ID_POINTER_PRESSED) != 0,
+            mouse(RETRO_DEVICE_ID_MOUSE_RIGHT) != 0,
+            mouse(RETRO_DEVICE_ID_MOUSE_MIDDLE) != 0,
+        ];
+
+        for ((was_down, is_down), button) in self.buttons.iter().zip(buttons).zip(BUTTONS) {
+            match (*was_down, is_down) {
+                (false, true) => events.extend([PlayerEvent::MouseDown {
+                    x,
+                    y,
+                    button,
+                    index: None,
+                }]),
+                (true, false) => events.extend([PlayerEvent::MouseUp { x, y, button }]),
+                _ => {}
+            }
+        }
+        self.buttons = buttons;
+
+        let wheel = match (
+            mouse(RETRO_DEVICE_ID_MOUSE_WHEELUP) != 0,
+            mouse(RETRO_DEVICE_ID_MOUSE_WHEELDOWN) != 0,
+        ) {
+            (true, false) => 1.0,
+            (false, true) => -1.0,
+            _ => 0.0,
+        };
+        if wheel != 0.0 {
+            events.extend([PlayerEvent::MouseWheel {
+                delta: MouseWheelDelta::Lines(wheel),
+            }]);
         }
     }
 }

@@ -1,311 +1,361 @@
-use ruffle_core::events::KeyCode;
+use std::collections::HashMap;
+
+use ruffle_core::events::{KeyDescriptor, KeyLocation, LogicalKey, NamedKey, PhysicalKey, TextControlCode};
+use ruffle_core::PlayerEvent;
 use rust_libretro::sys::{retro_key, retro_mod};
 
-// TODO: Write a proc_macro to simplify this
-/// Assumes US layout
-pub fn to_key_char(keycode: retro_key, key_modifiers: retro_mod) -> Option<char> {
-    use rust_libretro::sys::retro_key as key;
-    use rust_libretro::sys::retro_mod as kmod;
+/// Turns libretro keyboard callbacks into Ruffle events.
+#[derive(Default)]
+pub struct KeyboardState {
+    /// The logical key reported when each physical key went down. Frontends rarely
+    /// send a character on release, so this keeps non-US layouts consistent.
+    pressed: HashMap<PhysicalKey, LogicalKey>,
+}
 
-    match (key_modifiers, keycode) {
-        // Letters
-        (kmod::RETROKMOD_SHIFT, key::RETROK_a) => Some('A'),
-        (_, key::RETROK_a) => Some('a'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_b) => Some('B'),
-        (_, key::RETROK_b) => Some('b'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_c) => Some('C'),
-        (_, key::RETROK_c) => Some('c'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_d) => Some('D'),
-        (_, key::RETROK_d) => Some('d'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_e) => Some('E'),
-        (_, key::RETROK_e) => Some('e'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_f) => Some('F'),
-        (_, key::RETROK_f) => Some('f'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_g) => Some('G'),
-        (_, key::RETROK_g) => Some('g'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_h) => Some('H'),
-        (_, key::RETROK_h) => Some('h'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_i) => Some('I'),
-        (_, key::RETROK_i) => Some('i'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_j) => Some('J'),
-        (_, key::RETROK_j) => Some('j'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_k) => Some('K'),
-        (_, key::RETROK_k) => Some('k'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_l) => Some('L'),
-        (_, key::RETROK_l) => Some('l'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_m) => Some('M'),
-        (_, key::RETROK_m) => Some('m'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_n) => Some('N'),
-        (_, key::RETROK_n) => Some('n'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_o) => Some('O'),
-        (_, key::RETROK_o) => Some('o'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_p) => Some('P'),
-        (_, key::RETROK_p) => Some('p'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_q) => Some('Q'),
-        (_, key::RETROK_q) => Some('q'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_r) => Some('R'),
-        (_, key::RETROK_r) => Some('r'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_s) => Some('S'),
-        (_, key::RETROK_s) => Some('s'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_t) => Some('T'),
-        (_, key::RETROK_t) => Some('t'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_u) => Some('U'),
-        (_, key::RETROK_u) => Some('u'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_v) => Some('V'),
-        (_, key::RETROK_v) => Some('v'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_w) => Some('W'),
-        (_, key::RETROK_w) => Some('w'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_x) => Some('X'),
-        (_, key::RETROK_x) => Some('x'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_y) => Some('Y'),
-        (_, key::RETROK_y) => Some('y'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_z) => Some('Z'),
-        (_, key::RETROK_z) => Some('z'),
+impl KeyboardState {
+    /// `from_retropad` marks a key the frontend also reports as a RetroPad button,
+    /// which presses its Flash key already; only its text input is sent here.
+    pub fn handle(
+        &mut self,
+        down: bool,
+        from_retropad: bool,
+        keycode: retro_key,
+        character: u32,
+        modifiers: retro_mod,
+        events: &mut impl Extend<PlayerEvent>,
+    ) {
+        let character = char::from_u32(character).filter(|c| *c != '\0');
+        let shift = has(modifiers, retro_mod::RETROKMOD_SHIFT);
+        let caps = has(modifiers, retro_mod::RETROKMOD_CAPSLOCK);
+        let ctrl = has(modifiers, retro_mod::RETROKMOD_CTRL) || has(modifiers, retro_mod::RETROKMOD_META);
 
-        // Numbers
-        (kmod::RETROKMOD_SHIFT, key::RETROK_1) => Some('!'),
-        (_, key::RETROK_1) => Some('1'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_2) => Some('@'),
-        (_, key::RETROK_2) => Some('2'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_3) => Some('#'),
-        (_, key::RETROK_3) => Some('3'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_4) => Some('$'),
-        (_, key::RETROK_4) => Some('4'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_5) => Some('%'),
-        (_, key::RETROK_5) => Some('5'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_6) => Some('^'),
-        (_, key::RETROK_6) => Some('6'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_7) => Some('&'),
-        (_, key::RETROK_7) => Some('7'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_8) => Some('*'),
-        (_, key::RETROK_8) => Some('8'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_9) => Some('('),
-        (_, key::RETROK_9) => Some('9'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_0) => Some(')'),
-        (_, key::RETROK_0) => Some('0'),
+        if keycode != retro_key::RETROK_UNKNOWN {
+            let (physical_key, key_location) = physical_key(keycode);
+            let logical_key = if down {
+                let logical = match character {
+                    Some(c) if !c.is_control() => LogicalKey::Character(c),
+                    _ => logical_key(keycode, shift, caps),
+                };
+                if physical_key != PhysicalKey::Unknown && !from_retropad {
+                    self.pressed.insert(physical_key, logical);
+                }
+                logical
+            } else {
+                let released = self.pressed.remove(&physical_key);
+                // Still release keys pressed before the RetroPad was plugged in.
+                if from_retropad && released.is_none() {
+                    return;
+                }
+                match released {
+                    // Like Flash Player, a released letter takes its case from the modifiers held now.
+                    // Only ASCII: both cases map to the same key code, unlike other scripts.
+                    Some(LogicalKey::Character(c)) if c.is_ascii_alphabetic() => {
+                        LogicalKey::Character(if shift != caps {
+                            c.to_ascii_uppercase()
+                        } else {
+                            c.to_ascii_lowercase()
+                        })
+                    }
+                    Some(logical) => logical,
+                    None => logical_key(keycode, shift, caps),
+                }
+            };
 
-        // Punctuation, no Shift
-        (_, key::RETROK_TAB) => Some('\t'),
-        (_, key::RETROK_RETURN) => Some('\n'),
-        (_, key::RETROK_SPACE) => Some(' '),
-        (_, key::RETROK_EXCLAIM) => Some('!'),
-        (_, key::RETROK_QUOTEDBL) => Some('"'),
-        (_, key::RETROK_HASH) => Some('#'),
-        (_, key::RETROK_DOLLAR) => Some('$'),
-        (_, key::RETROK_AMPERSAND) => Some('&'),
-        (_, key::RETROK_QUOTE) => Some('\''),
-        (_, key::RETROK_LEFTPAREN) => Some('('),
-        (_, key::RETROK_RIGHTPAREN) => Some(')'),
-        (_, key::RETROK_ASTERISK) => Some('*'),
-        (_, key::RETROK_PLUS) => Some('+'),
-        (_, key::RETROK_COLON) => Some(':'),
-        (_, key::RETROK_LESS) => Some('<'),
-        (_, key::RETROK_GREATER) => Some('>'),
-        (_, key::RETROK_QUESTION) => Some('?'),
-        (_, key::RETROK_AT) => Some('@'),
-        (_, key::RETROK_CARET) => Some('^'),
-        (_, key::RETROK_UNDERSCORE) => Some('_'),
-        (_, key::RETROK_LEFTBRACE) => Some('{'),
-        (_, key::RETROK_RIGHTBRACE) => Some('}'),
-        (_, key::RETROK_TILDE) => Some('~'),
-        (_, key::RETROK_BACKSPACE) => Some('\x08'),
-        (_, key::RETROK_EURO) => Some('€'),
+            let key = KeyDescriptor {
+                physical_key,
+                logical_key,
+                key_location,
+            };
+            if !down {
+                events.extend([PlayerEvent::KeyUp { key }]);
+            } else if !from_retropad {
+                events.extend([PlayerEvent::KeyDown { key }]);
+            }
 
-        // Punctuation with Shift
-        (kmod::RETROKMOD_SHIFT, key::RETROK_COMMA) => Some('<'),
-        (_, key::RETROK_COMMA) => Some(','),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_MINUS) => Some('_'),
-        (_, key::RETROK_MINUS) => Some('-'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_PERIOD) => Some('>'),
-        (_, key::RETROK_PERIOD) => Some('.'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_SLASH) => Some('?'),
-        (_, key::RETROK_SLASH) => Some('/'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_SEMICOLON) => Some(':'),
-        (_, key::RETROK_SEMICOLON) => Some(';'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_EQUALS) => Some('+'),
-        (_, key::RETROK_EQUALS) => Some('='),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_LEFTBRACKET) => Some('{'),
-        (_, key::RETROK_LEFTBRACKET) => Some('['),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_BACKSLASH) => Some('|'),
-        (_, key::RETROK_BACKSLASH) => Some('\\'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_RIGHTBRACKET) => Some('}'),
-        (_, key::RETROK_RIGHTBRACKET) => Some(']'),
-        (kmod::RETROKMOD_SHIFT, key::RETROK_BACKQUOTE) => Some('~'),
-        (_, key::RETROK_BACKQUOTE) => Some('`'),
+            if down {
+                if let Some(code) = text_control(keycode, shift, ctrl) {
+                    events.extend([PlayerEvent::TextControl { code }]);
+                    return;
+                }
+            }
+        }
 
-        // Numpad
-        (_, key::RETROK_KP0) => Some('0'),
-        (_, key::RETROK_KP1) => Some('1'),
-        (_, key::RETROK_KP2) => Some('2'),
-        (_, key::RETROK_KP3) => Some('3'),
-        (_, key::RETROK_KP4) => Some('4'),
-        (_, key::RETROK_KP5) => Some('5'),
-        (_, key::RETROK_KP6) => Some('6'),
-        (_, key::RETROK_KP7) => Some('7'),
-        (_, key::RETROK_KP8) => Some('8'),
-        (_, key::RETROK_KP9) => Some('9'),
-        (_, key::RETROK_KP_PERIOD) => Some('.'),
-        (_, key::RETROK_KP_DIVIDE) => Some('/'),
-        (_, key::RETROK_KP_MULTIPLY) => Some('*'),
-        (_, key::RETROK_KP_MINUS) => Some('-'),
-        (_, key::RETROK_KP_PLUS) => Some('+'),
-        (_, key::RETROK_KP_ENTER) => Some('\n'),
-        (_, key::RETROK_KP_EQUALS) => Some('='),
-
-        _ => None,
+        // Characters can arrive with their keypress or in a separate event with no keycode.
+        if down && !ctrl {
+            if let Some(codepoint) = character.filter(|c| !c.is_control()) {
+                events.extend([PlayerEvent::TextInput { codepoint }]);
+            }
+        }
     }
 }
 
-/// Assumes US layout
-pub fn to_key_code(key: retro_key) -> KeyCode {
-    use ruffle_core::events::KeyCode::*;
-    match key {
-        retro_key::RETROK_UNKNOWN => Unknown,
-        retro_key::RETROK_BACKSPACE => Backspace,
-        retro_key::RETROK_TAB => Tab,
-        retro_key::RETROK_CLEAR => Unknown,
-        retro_key::RETROK_RETURN => Return,
-        retro_key::RETROK_PAUSE => Pause,
-        retro_key::RETROK_ESCAPE => Escape,
-        retro_key::RETROK_SPACE => Space,
-        retro_key::RETROK_EXCLAIM => Key1,
-        retro_key::RETROK_QUOTEDBL => Apostrophe,
-        retro_key::RETROK_HASH => Key3,
-        retro_key::RETROK_DOLLAR => Key4,
-        retro_key::RETROK_AMPERSAND => Key7,
-        retro_key::RETROK_QUOTE => Apostrophe,
-        retro_key::RETROK_LEFTPAREN => Key9,
-        retro_key::RETROK_RIGHTPAREN => Key0,
-        retro_key::RETROK_ASTERISK => Key8,
-        retro_key::RETROK_PLUS => Plus,
-        retro_key::RETROK_COMMA => Comma,
-        retro_key::RETROK_MINUS => Minus,
-        retro_key::RETROK_PERIOD => Period,
-        retro_key::RETROK_SLASH => Slash,
-        retro_key::RETROK_0 => Key0,
-        retro_key::RETROK_1 => Key1,
-        retro_key::RETROK_2 => Key2,
-        retro_key::RETROK_3 => Key3,
-        retro_key::RETROK_4 => Key4,
-        retro_key::RETROK_5 => Key5,
-        retro_key::RETROK_6 => Key6,
-        retro_key::RETROK_7 => Key7,
-        retro_key::RETROK_8 => Key8,
-        retro_key::RETROK_9 => Key9,
-        retro_key::RETROK_COLON => Semicolon,
-        retro_key::RETROK_SEMICOLON => Semicolon,
-        retro_key::RETROK_LESS => Comma,
-        retro_key::RETROK_EQUALS => Equals,
-        retro_key::RETROK_GREATER => Period,
-        retro_key::RETROK_QUESTION => Slash,
-        retro_key::RETROK_AT => Key2,
-        retro_key::RETROK_LEFTBRACKET => LBracket,
-        retro_key::RETROK_BACKSLASH => Backslash,
-        retro_key::RETROK_RIGHTBRACKET => RBracket,
-        retro_key::RETROK_CARET => Key6,
-        retro_key::RETROK_UNDERSCORE => Minus,
-        retro_key::RETROK_BACKQUOTE => Grave,
-        retro_key::RETROK_a => A,
-        retro_key::RETROK_b => B,
-        retro_key::RETROK_c => C,
-        retro_key::RETROK_d => D,
-        retro_key::RETROK_e => E,
-        retro_key::RETROK_f => F,
-        retro_key::RETROK_g => G,
-        retro_key::RETROK_h => H,
-        retro_key::RETROK_i => I,
-        retro_key::RETROK_j => J,
-        retro_key::RETROK_k => K,
-        retro_key::RETROK_l => L,
-        retro_key::RETROK_m => M,
-        retro_key::RETROK_n => N,
-        retro_key::RETROK_o => O,
-        retro_key::RETROK_p => P,
-        retro_key::RETROK_q => Q,
-        retro_key::RETROK_r => R,
-        retro_key::RETROK_s => S,
-        retro_key::RETROK_t => T,
-        retro_key::RETROK_u => U,
-        retro_key::RETROK_v => V,
-        retro_key::RETROK_w => W,
-        retro_key::RETROK_x => X,
-        retro_key::RETROK_y => Y,
-        retro_key::RETROK_z => Z,
-        retro_key::RETROK_LEFTBRACE => LBracket,
-        retro_key::RETROK_BAR => Unknown,
-        retro_key::RETROK_RIGHTBRACE => RBracket,
-        retro_key::RETROK_TILDE => Apostrophe,
-        retro_key::RETROK_DELETE => Delete,
+fn has(modifiers: retro_mod, flag: retro_mod) -> bool {
+    (modifiers & flag) != retro_mod::RETROKMOD_NONE
+}
 
-        retro_key::RETROK_KP0 => Numpad0,
-        retro_key::RETROK_KP1 => Numpad1,
-        retro_key::RETROK_KP2 => Numpad2,
-        retro_key::RETROK_KP3 => Numpad3,
-        retro_key::RETROK_KP4 => Numpad4,
-        retro_key::RETROK_KP5 => Numpad5,
-        retro_key::RETROK_KP6 => Numpad6,
-        retro_key::RETROK_KP7 => Numpad7,
-        retro_key::RETROK_KP8 => Numpad8,
-        retro_key::RETROK_KP9 => Numpad9,
-        retro_key::RETROK_KP_PERIOD => NumpadPeriod,
-        retro_key::RETROK_KP_DIVIDE => NumpadSlash,
-        retro_key::RETROK_KP_MULTIPLY => Multiply,
-        retro_key::RETROK_KP_MINUS => NumpadMinus,
-        retro_key::RETROK_KP_PLUS => Plus,
-        retro_key::RETROK_KP_ENTER => NumpadEnter,
-        retro_key::RETROK_KP_EQUALS => Equals,
+fn text_control(keycode: retro_key, shift: bool, ctrl: bool) -> Option<TextControlCode> {
+    use retro_key as k;
+    use TextControlCode as T;
 
-        retro_key::RETROK_UP => Up,
-        retro_key::RETROK_DOWN => Down,
-        retro_key::RETROK_RIGHT => Right,
-        retro_key::RETROK_LEFT => Left,
-        retro_key::RETROK_INSERT => Insert,
-        retro_key::RETROK_HOME => Home,
-        retro_key::RETROK_END => End,
-        retro_key::RETROK_PAGEUP => PgUp,
-        retro_key::RETROK_PAGEDOWN => PgDown,
+    Some(match keycode {
+        k::RETROK_RETURN | k::RETROK_KP_ENTER => T::Enter,
+        k::RETROK_a if ctrl => T::SelectAll,
+        k::RETROK_c if ctrl => T::Copy,
+        k::RETROK_v if ctrl => T::Paste,
+        k::RETROK_x if ctrl => T::Cut,
+        k::RETROK_BACKSPACE if ctrl => T::BackspaceWord,
+        k::RETROK_BACKSPACE => T::Backspace,
+        k::RETROK_DELETE if ctrl => T::DeleteWord,
+        k::RETROK_DELETE => T::Delete,
+        k::RETROK_LEFT => match (ctrl, shift) {
+            (true, true) => T::SelectLeftWord,
+            (true, false) => T::MoveLeftWord,
+            (false, true) => T::SelectLeft,
+            (false, false) => T::MoveLeft,
+        },
+        k::RETROK_RIGHT => match (ctrl, shift) {
+            (true, true) => T::SelectRightWord,
+            (true, false) => T::MoveRightWord,
+            (false, true) => T::SelectRight,
+            (false, false) => T::MoveRight,
+        },
+        k::RETROK_HOME => match (ctrl, shift) {
+            (true, true) => T::SelectLeftDocument,
+            (true, false) => T::MoveLeftDocument,
+            (false, true) => T::SelectLeftLine,
+            (false, false) => T::MoveLeftLine,
+        },
+        k::RETROK_END => match (ctrl, shift) {
+            (true, true) => T::SelectRightDocument,
+            (true, false) => T::MoveRightDocument,
+            (false, true) => T::SelectRightLine,
+            (false, false) => T::MoveRightLine,
+        },
+        _ => return None,
+    })
+}
 
-        retro_key::RETROK_F1 => F1,
-        retro_key::RETROK_F2 => F2,
-        retro_key::RETROK_F3 => F3,
-        retro_key::RETROK_F4 => F4,
-        retro_key::RETROK_F5 => F5,
-        retro_key::RETROK_F6 => F6,
-        retro_key::RETROK_F7 => F7,
-        retro_key::RETROK_F8 => F8,
-        retro_key::RETROK_F9 => F9,
-        retro_key::RETROK_F10 => F10,
-        retro_key::RETROK_F11 => F11,
-        retro_key::RETROK_F12 => F12,
-        retro_key::RETROK_F13 => F13,
-        retro_key::RETROK_F14 => F14,
-        retro_key::RETROK_F15 => F15,
+/// The character a key produces on a US layout, used when the frontend doesn't supply one.
+fn logical_key(keycode: retro_key, shift: bool, caps: bool) -> LogicalKey {
+    use retro_key as k;
+    use LogicalKey::{Character as C, Named as N};
 
-        retro_key::RETROK_NUMLOCK => Numpad,
-        retro_key::RETROK_CAPSLOCK => CapsLock,
-        retro_key::RETROK_SCROLLOCK => ScrollLock,
-        retro_key::RETROK_RSHIFT => Shift,
-        retro_key::RETROK_LSHIFT => Shift,
-        retro_key::RETROK_RCTRL => Control,
-        retro_key::RETROK_LCTRL => Control,
-        retro_key::RETROK_RALT => Alt,
-        retro_key::RETROK_LALT => Alt,
-        retro_key::RETROK_RMETA => Unknown,
-        retro_key::RETROK_LMETA => Unknown,
-        retro_key::RETROK_LSUPER => Unknown,
-        retro_key::RETROK_RSUPER => Unknown,
-        retro_key::RETROK_MODE => Unknown,
-        retro_key::RETROK_COMPOSE => Unknown,
-
-        retro_key::RETROK_HELP => Unknown,
-        retro_key::RETROK_PRINT => Unknown,
-        retro_key::RETROK_SYSREQ => Unknown,
-        retro_key::RETROK_BREAK => Unknown,
-        retro_key::RETROK_MENU => Unknown,
-        retro_key::RETROK_POWER => Unknown,
-        retro_key::RETROK_EURO => Unknown,
-        retro_key::RETROK_UNDO => Unknown,
-        retro_key::RETROK_OEM_102 => Unknown,
-        _ => Unknown,
+    let code = keycode.0;
+    if let Some(c) = char::from_u32(code).filter(char::is_ascii_lowercase) {
+        return C(if shift != caps { c.to_ascii_uppercase() } else { c });
     }
+    if let Some(c) = char::from_u32(code).filter(|c| c.is_ascii_graphic() || *c == ' ') {
+        return C(if shift { us_shifted(c) } else { c });
+    }
+    if (k::RETROK_KP0.0..=k::RETROK_KP9.0).contains(&code) {
+        return C(char::from(b'0' + (code - k::RETROK_KP0.0) as u8));
+    }
+    if (k::RETROK_F1.0..=k::RETROK_F15.0).contains(&code) {
+        return N(function_key(code - k::RETROK_F1.0));
+    }
+
+    match keycode {
+        k::RETROK_KP_PERIOD => C('.'),
+        k::RETROK_KP_DIVIDE => C('/'),
+        k::RETROK_KP_MULTIPLY => C('*'),
+        k::RETROK_KP_MINUS => C('-'),
+        k::RETROK_KP_PLUS => C('+'),
+        k::RETROK_KP_EQUALS => C('='),
+        k::RETROK_BACKSPACE => N(NamedKey::Backspace),
+        k::RETROK_TAB => N(NamedKey::Tab),
+        k::RETROK_CLEAR => N(NamedKey::Clear),
+        k::RETROK_RETURN | k::RETROK_KP_ENTER => N(NamedKey::Enter),
+        k::RETROK_PAUSE | k::RETROK_BREAK => N(NamedKey::Pause),
+        k::RETROK_ESCAPE => N(NamedKey::Escape),
+        k::RETROK_DELETE => N(NamedKey::Delete),
+        k::RETROK_UP => N(NamedKey::ArrowUp),
+        k::RETROK_DOWN => N(NamedKey::ArrowDown),
+        k::RETROK_RIGHT => N(NamedKey::ArrowRight),
+        k::RETROK_LEFT => N(NamedKey::ArrowLeft),
+        k::RETROK_INSERT => N(NamedKey::Insert),
+        k::RETROK_HOME => N(NamedKey::Home),
+        k::RETROK_END => N(NamedKey::End),
+        k::RETROK_PAGEUP => N(NamedKey::PageUp),
+        k::RETROK_PAGEDOWN => N(NamedKey::PageDown),
+        k::RETROK_NUMLOCK => N(NamedKey::NumLock),
+        k::RETROK_CAPSLOCK => N(NamedKey::CapsLock),
+        k::RETROK_SCROLLOCK => N(NamedKey::ScrollLock),
+        k::RETROK_LSHIFT | k::RETROK_RSHIFT => N(NamedKey::Shift),
+        k::RETROK_LCTRL | k::RETROK_RCTRL => N(NamedKey::Control),
+        k::RETROK_LALT | k::RETROK_RALT => N(NamedKey::Alt),
+        k::RETROK_LMETA | k::RETROK_RMETA | k::RETROK_LSUPER | k::RETROK_RSUPER => N(NamedKey::Super),
+        k::RETROK_MODE => N(NamedKey::AltGraph),
+        k::RETROK_PRINT | k::RETROK_SYSREQ => N(NamedKey::PrintScreen),
+        k::RETROK_MENU => N(NamedKey::ContextMenu),
+        k::RETROK_UNDO => N(NamedKey::Undo),
+        _ => LogicalKey::Unknown,
+    }
+}
+
+fn us_shifted(c: char) -> char {
+    match c {
+        '`' => '~',
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        '-' => '_',
+        '=' => '+',
+        '[' => '{',
+        ']' => '}',
+        '\\' => '|',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '/' => '?',
+        other => other,
+    }
+}
+
+fn function_key(index: u32) -> NamedKey {
+    const KEYS: [NamedKey; 15] = [
+        NamedKey::F1,
+        NamedKey::F2,
+        NamedKey::F3,
+        NamedKey::F4,
+        NamedKey::F5,
+        NamedKey::F6,
+        NamedKey::F7,
+        NamedKey::F8,
+        NamedKey::F9,
+        NamedKey::F10,
+        NamedKey::F11,
+        NamedKey::F12,
+        NamedKey::F13,
+        NamedKey::F14,
+        NamedKey::F15,
+    ];
+    KEYS[index as usize]
+}
+
+fn physical_key(keycode: retro_key) -> (PhysicalKey, KeyLocation) {
+    use retro_key as k;
+    use KeyLocation::{Left, Numpad, Right, Standard};
+    use PhysicalKey as P;
+
+    let key = match keycode {
+        k::RETROK_BACKSPACE => P::Backspace,
+        k::RETROK_TAB => P::Tab,
+        k::RETROK_RETURN => P::Enter,
+        k::RETROK_PAUSE | k::RETROK_BREAK => P::Pause,
+        k::RETROK_ESCAPE => P::Escape,
+        k::RETROK_SPACE => P::Space,
+        k::RETROK_QUOTE | k::RETROK_QUOTEDBL => P::Quote,
+        k::RETROK_COMMA | k::RETROK_LESS => P::Comma,
+        k::RETROK_MINUS | k::RETROK_UNDERSCORE => P::Minus,
+        k::RETROK_PERIOD | k::RETROK_GREATER => P::Period,
+        k::RETROK_SLASH | k::RETROK_QUESTION => P::Slash,
+        k::RETROK_0 | k::RETROK_RIGHTPAREN => P::Digit0,
+        k::RETROK_1 | k::RETROK_EXCLAIM => P::Digit1,
+        k::RETROK_2 | k::RETROK_AT => P::Digit2,
+        k::RETROK_3 | k::RETROK_HASH => P::Digit3,
+        k::RETROK_4 | k::RETROK_DOLLAR => P::Digit4,
+        k::RETROK_5 => P::Digit5,
+        k::RETROK_6 | k::RETROK_CARET => P::Digit6,
+        k::RETROK_7 | k::RETROK_AMPERSAND => P::Digit7,
+        k::RETROK_8 | k::RETROK_ASTERISK => P::Digit8,
+        k::RETROK_9 | k::RETROK_LEFTPAREN => P::Digit9,
+        k::RETROK_SEMICOLON | k::RETROK_COLON => P::Semicolon,
+        k::RETROK_EQUALS | k::RETROK_PLUS => P::Equal,
+        k::RETROK_LEFTBRACKET | k::RETROK_LEFTBRACE => P::BracketLeft,
+        k::RETROK_BACKSLASH | k::RETROK_BAR => P::Backslash,
+        k::RETROK_RIGHTBRACKET | k::RETROK_RIGHTBRACE => P::BracketRight,
+        k::RETROK_BACKQUOTE | k::RETROK_TILDE => P::Backquote,
+        k::RETROK_OEM_102 => P::IntlBackslash,
+        k::RETROK_a => P::KeyA,
+        k::RETROK_b => P::KeyB,
+        k::RETROK_c => P::KeyC,
+        k::RETROK_d => P::KeyD,
+        k::RETROK_e => P::KeyE,
+        k::RETROK_f => P::KeyF,
+        k::RETROK_g => P::KeyG,
+        k::RETROK_h => P::KeyH,
+        k::RETROK_i => P::KeyI,
+        k::RETROK_j => P::KeyJ,
+        k::RETROK_k => P::KeyK,
+        k::RETROK_l => P::KeyL,
+        k::RETROK_m => P::KeyM,
+        k::RETROK_n => P::KeyN,
+        k::RETROK_o => P::KeyO,
+        k::RETROK_p => P::KeyP,
+        k::RETROK_q => P::KeyQ,
+        k::RETROK_r => P::KeyR,
+        k::RETROK_s => P::KeyS,
+        k::RETROK_t => P::KeyT,
+        k::RETROK_u => P::KeyU,
+        k::RETROK_v => P::KeyV,
+        k::RETROK_w => P::KeyW,
+        k::RETROK_x => P::KeyX,
+        k::RETROK_y => P::KeyY,
+        k::RETROK_z => P::KeyZ,
+        k::RETROK_DELETE => P::Delete,
+        k::RETROK_KP0 => return (P::Numpad0, Numpad),
+        k::RETROK_KP1 => return (P::Numpad1, Numpad),
+        k::RETROK_KP2 => return (P::Numpad2, Numpad),
+        k::RETROK_KP3 => return (P::Numpad3, Numpad),
+        k::RETROK_KP4 => return (P::Numpad4, Numpad),
+        k::RETROK_KP5 => return (P::Numpad5, Numpad),
+        k::RETROK_KP6 => return (P::Numpad6, Numpad),
+        k::RETROK_KP7 => return (P::Numpad7, Numpad),
+        k::RETROK_KP8 => return (P::Numpad8, Numpad),
+        k::RETROK_KP9 => return (P::Numpad9, Numpad),
+        k::RETROK_KP_PERIOD => return (P::NumpadDecimal, Numpad),
+        k::RETROK_KP_DIVIDE => return (P::NumpadDivide, Numpad),
+        k::RETROK_KP_MULTIPLY => return (P::NumpadMultiply, Numpad),
+        k::RETROK_KP_MINUS => return (P::NumpadSubtract, Numpad),
+        k::RETROK_KP_PLUS => return (P::NumpadAdd, Numpad),
+        k::RETROK_KP_ENTER => return (P::NumpadEnter, Numpad),
+        k::RETROK_UP => P::ArrowUp,
+        k::RETROK_DOWN => P::ArrowDown,
+        k::RETROK_RIGHT => P::ArrowRight,
+        k::RETROK_LEFT => P::ArrowLeft,
+        k::RETROK_INSERT => P::Insert,
+        k::RETROK_HOME => P::Home,
+        k::RETROK_END => P::End,
+        k::RETROK_PAGEUP => P::PageUp,
+        k::RETROK_PAGEDOWN => P::PageDown,
+        k::RETROK_F1 => P::F1,
+        k::RETROK_F2 => P::F2,
+        k::RETROK_F3 => P::F3,
+        k::RETROK_F4 => P::F4,
+        k::RETROK_F5 => P::F5,
+        k::RETROK_F6 => P::F6,
+        k::RETROK_F7 => P::F7,
+        k::RETROK_F8 => P::F8,
+        k::RETROK_F9 => P::F9,
+        k::RETROK_F10 => P::F10,
+        k::RETROK_F11 => P::F11,
+        k::RETROK_F12 => P::F12,
+        k::RETROK_F13 => P::F13,
+        k::RETROK_F14 => P::F14,
+        k::RETROK_F15 => P::F15,
+        k::RETROK_NUMLOCK => P::NumLock,
+        k::RETROK_CAPSLOCK => P::CapsLock,
+        k::RETROK_SCROLLOCK => P::ScrollLock,
+        k::RETROK_LSHIFT => return (P::ShiftLeft, Left),
+        k::RETROK_RSHIFT => return (P::ShiftRight, Right),
+        k::RETROK_LCTRL => return (P::ControlLeft, Left),
+        k::RETROK_RCTRL => return (P::ControlRight, Right),
+        k::RETROK_LALT => return (P::AltLeft, Left),
+        k::RETROK_RALT => return (P::AltRight, Right),
+        k::RETROK_LMETA | k::RETROK_LSUPER => return (P::SuperLeft, Left),
+        k::RETROK_RMETA | k::RETROK_RSUPER => return (P::SuperRight, Right),
+        k::RETROK_PRINT | k::RETROK_SYSREQ => P::PrintScreen,
+        k::RETROK_MENU => P::ContextMenu,
+        _ => P::Unknown,
+    };
+
+    (key, Standard)
 }

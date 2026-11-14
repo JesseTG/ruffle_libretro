@@ -1,0 +1,77 @@
+## All data is optional, but helps improve user experience.
+
+# Software Information - Information about the core software itself
+# Name displayed when the user is selecting the core:
+display_name = "Adobe - Flash (Ruffle)"
+
+# Categories that the core belongs to (optional):
+categories = "Emulator"
+
+# Name of the authors who wrote the core:
+authors = "Ruffle LLC|Jesse Talavera-Greenberg"
+
+# Name of the core:
+corename = "Ruffle"
+
+# List of extensions the core supports:
+supported_extensions = "swf"
+
+# License of the cores source code:
+license = "MIT/Apache-2.0"
+
+# Privacy-specific permissions needed for using the core:
+permissions = ""
+
+# Version of the core:
+display_version = "v0.7.1"
+
+# Hardware Information - Information about the hardware the core supports (when applicable)
+# Name of the manufacturer who produced the emulated system:
+manufacturer = "Adobe"
+
+# Name of the system that the core targets (optional):
+systemname = "Flash"
+
+# ID of the primary platform the core uses. Use other core info files as guidance if possible.
+# If blank or not used, a standard core platform will be used (optional):
+systemid = "flash"
+
+# The number of mandatory/optional firmware files the core needs:
+firmware_count = 0
+
+# Additional notes:
+notes = "[1] Movies can load files next to the .swf, so keep their folders intact.|[2] SharedObjects (Flash saves) are stored in the save directory under ruffle/SharedObjects.|[3] RetroPad buttons press keys: D-Pad = arrows, B = Z, A = X, Y = A, X = S, L = Q, R = W, L2 = E, R2 = R, Select = Shift, Start = Enter."
+
+# Libretro Features - The libretro API features the core supports. Useful for sorting cores
+# Does the core support savestates
+savestate = "false"
+# Does the core support the libretro cheat interface?
+cheats = "false"
+# Does the core support libretro input descriptors
+input_descriptors = "true"
+# Does the core support memory descriptors commonly used for achievements
+memory_descriptors = "false"
+# Does the core use the libretro save interface or does it do its own thing (like with shared memory cards)?
+libretro_saves = "false"
+# Does the core support the core options interface?
+core_options = "true"
+# What version of core options is supported? (later versions allow for localization and descriptions)
+core_options_version = "2.0"
+# Does the core support the subsystem interface? Commonly used for chained/special loading, such as Super Game Boy
+load_subsystem = "false"
+# Whether or not the core requires an external file to work:
+supports_no_game = "false"
+# Does the core have a single purpose? Does it represent one game or application, requiring predetermined support files or no external data? Used to indicate to a frontend that the core may be presented/handled independently from 'regular' cores that run a variety of content.
+single_purpose = "false"
+# When a database match is found inside an archive, should the archive be added to the playlist instead, leaving archive handling to the core?
+database_match_archive_member = "false"
+# Does the core support/require support for libretro-gl or other hardware-acceleration in the frontend?
+hw_render = "false"
+# Does the core require ongoing access to the file after loading? Mostly used for softpatching and streaming of data
+needs_fullpath = "true"
+# Does the core support the libretro disk control interface for swapping disks on the fly?
+disk_control = "false"
+# Is the core currently suitable for general use? That is, will regular users find it useful or is it for development/testing only (subject to change over time)?
+is_experimental = "true"
+# Descriptive text, useful for tooltips, etc.
+description = "Plays Adobe Flash movies and games (.swf) using Ruffle, a Flash Player emulator written in Rust. Supports ActionScript 1, 2 and 3, Stage3D, audio and local file loading. Rendering uses its own GPU device (Vulkan, Metal, DirectX 12 or OpenGL) and works with any RetroArch video driver. Savestates are not supported."
